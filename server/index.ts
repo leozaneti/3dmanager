@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import cors from "@fastify/cors";
 import { randomUUID } from "node:crypto";
@@ -31,6 +32,24 @@ await app.register(rateLimit, {
   max: 300,
   timeWindow: "1 minute"
 });
+
+const frontendDir = path.resolve("dist");
+if (fs.existsSync(frontendDir)) {
+  await app.register(fastifyStatic, {
+    root: frontendDir,
+    prefix: "/",
+    wildcard: false
+  });
+
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/api/")) {
+      reply.status(404).send({ error: "Not Found" });
+    } else {
+      reply.sendFile("index.html");
+    }
+  });
+}
+
 migrate();
 
 clearExpiredSessions();
