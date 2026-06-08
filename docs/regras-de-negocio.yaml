@@ -1,0 +1,430 @@
+# Regras de Negócio — 3D Manager (v0.1.0)
+# Formato estruturado para consumo por IAs e ferramentas automatizadas.
+
+metadata:
+  sistema: "3D Manager"
+  versao: "0.1.0"
+  descricao: "Sistema de gestão para e-commerce de impressão 3D"
+  ultima_atualizacao: "2026-06"
+
+regras:
+
+  # ───────────────────────────────────────────────────────
+  # 1. PEDIDOS
+  # ───────────────────────────────────────────────────────
+
+  - id: RN01
+    dominio: "Pedidos"
+    titulo: "Ciclo de Vida do Pedido"
+    descricao: >
+      O pedido percorre os status: Novo → Produção → Enviado → Entregue.
+      Cancelado e Devolvido são estados terminais.
+    fluxo:
+      - "Novo (1)"
+      - "Produção (2)"
+      - "Enviado (3)"
+      - "Entregue (4)"
+    estados_terminal: [5, 6]
+
+  - id: RN02
+    dominio: "Pedidos"
+    titulo: "Transições de Status Válidas"
+    descricao: "Cada status só pode transitar para um conjunto específico de próximos status."
+    transicoes:
+      1: [2, 5, 6]   # Novo → Produção, Cancelado, Devolvido
+      2: [3, 5, 6]   # Produção → Enviado, Cancelado, Devolvido
+      3: [4, 5, 6]   # Enviado → Entregue, Cancelado, Devolvido
+      4: [6]         # Entregue → Devolvido
+      5: []          # Cancelado → (terminal)
+      6: []          # Devolvido → (terminal)
+    fonte: "server/importShared.ts"
+    validacao_servidor: true
+
+  - id: RN03
+    dominio: "Pedidos"
+    titulo: "Unicidade de Pedido Externo"
+    descricao: >
+      O campo external_order_id é único por par (store_id, sales_channel_id).
+      Impede duplicidade de pedidos importados.
+    escopo: "(store_id, sales_channel_id, external_order_id)"
+    tipo: "unique_index"
+    sql: "CREATE UNIQUE INDEX idx_orders_external ON orders(store_id, sales_channel_id, external_order_id) WHERE external_order_id IS NOT NULL AND external_order_id <> ''"
+
+  - id: RN04
+    dominio: "Pedidos"
+    titulo: "Auto-Estorno para Mercado Livre ao Devolver"
+    descricao: >
+      Ao marcar um pedido do canal Mercado Livre como Devolvido, todos os
+      valores financeiros e custos de itens são zerados automaticamente.
+    canal: "Mercado Livre"
+    gatilho: "status_id = 6"
+    acoes:
+      - "Zerar order_financials (todos os campos)"
+      - "Zerar cost_unit_cents em order_items"
+    fonte: "server/index.ts:1171-1188"
+    import_tambem: true
+
+  - id: RN05
+    dominio: "Pedidos"
+    titulo: "Exclusão de Pedido"
+    descricao: "Exclusão física com remoção em cascata de itens e financeiros."
+    tipo: "DELETE"
+    cascata: ["order_items", "order_financials"]
+
+  # ───────────────────────────────────────────────────────
+  # 2. PRODUTOS
+  # ───────────────────────────────────────────────────────
+
+  - id: RN06
+    dominio: "Produtos"
+    titulo: "Unicidade de SKU"
+    descricao: "SKU é campo UNIQUE na tabela products."
+    tipo: "unique_constraint"
+
+  - id: RN07
+    dominio: "Produtos"
+    titulo: "Cálculo de Custo de Produção"
+    descricao: "Calcula o custo total de fabricação de um produto 3D."
+    parametros:
+      - pesoGramas
+      - tempoImpressaoMin
+      - custoAdicionalCents
+      - settings (pla_preco_kg, energia_hora, valor_maquina, vida_util, manutencao, taxa_erro)
+    formula:
+      material: "(pesoGramas / 1000) * plaPrecoKg"
+      energia: "tempoImpressaoMin * (energiaHora / 60)"
+      maquina: "tempoImpressaoMin * (valorMaquina / vidaUtilHoras / 60) * (1 + manutencao / 100)"
+      subtotal: "material + energia + maquina + custoAdicional"
+      erro: "subtotal * (taxaErro / 100)"
+      total: "subtotal + erro"
+    fonte: "src/ui/ProductModal.tsx:14-43"
+
+  - id: RN08
+    dominio: "Produtos"
+    titulo: "Recalculo Retroativo de Custo"
+    descricao: >
+      Ao editar o custo de um produto, é possível recalcular o cost_unit_cents
+      em pedidos existentes.
+    opcoes:
+      - valor: "none"
+        descricao: "Não altera pedidos existentes"
+      - valor: "from_date"
+        descricao: "Atualiza apenas pedidos com sale_date >= data escolhida"
+      - valor: "all"
+        descricao: "Atualiza todos os pedidos que contêm o produto"
+    campo_afetado: "order_items.cost_unit_cents"
+
+  - id: RN09
+    dominio: "Produtos"
+    titulo: "Exclusão de Produto"
+    descricao: "Anula a referência product_id nos order_items (não remove itens)."
+    acao: "UPDATE order_items SET product_id = NULL WHERE product_id = ?"
+
+  # ───────────────────────────────────────────────────────
+  # 3. CLIENTES
+  # ───────────────────────────────────────────────────────
+
+  - id: RN10
+    dominio: "Clientes"
+    titulo: "Deduplicação por Documento"
+    descricao: >
+      Cliente é identificado unicamente por document (CPF/CNPJ).
+      Fallback para (nome, CEP) quando documento estiver vazio.
+    criterios:
+      - "document (CPF/CNPJ)"
+      - "name + cep (fallback)"
+
+  - id: RN11
+    dominio: "Clientes"
+    titulo: "Merge de Dados na Importação"
+    descricao: >
+      Se cliente já existe por documento mas tem campos vazios (endereço etc.),
+      estes são preenchidos com dados do arquivo importado.
+    condicao: "cliente existe por documento E campo destino está vazio"
+    campos_afetados: ["name", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
+
+  - id: RN12
+    dominio: "Clientes"
+    titulo: "Exclusão de Cliente"
+    descricao: "Desvincula o cliente dos pedidos sem excluir os pedidos."
+    acao: "UPDATE orders SET customer_id = NULL WHERE customer_id = ?"
+
+  # ───────────────────────────────────────────────────────
+  # 4. FINANCEIRO
+  # ───────────────────────────────────────────────────────
+
+  - id: RN13
+    dominio: "Financeiro"
+    titulo: "Armazenamento em Centavos"
+    descricao: "Todo valor monetário é INTEGER em centavos (sufixo _cents)."
+    formato: "centavos (inteiro)"
+    exemplos:
+      - "R$ 100,00 → 10000"
+      - "R$ 0,10 → 10"
+
+  - id: RN14
+    dominio: "Financeiro"
+    titulo: "Cálculos Financeiros por Pedido"
+    descricao: "Fórmulas que derivam receita, custo, lucro e margem de cada pedido."
+    formulas:
+      subsidioFrete: "shipping_total_cents - shipping_customer_cents"
+      receitaBruta: "products_amount_cents + shipping_customer_cents"
+      custoOperacional: "platform_fee_cents + shipping_total_cents + other_costs_cents + packaging_cents + additional_costs_cents - discount_cents"
+      receitaLiquida: "receitaBruta - custoOperacional"
+      lucro: "receitaLiquida - itemsCostCents"
+      margemPercentual: "(lucro / receitaBruta) * 100"
+      resultadoVenda: "receitaBruta - platform_fee_cents - shipping_total_cents - other_costs_cents + discount_cents"
+    fonte: "server/calculations.ts"
+
+  - id: RN15
+    dominio: "Financeiro"
+    titulo: "Embalagem como Custo Padrão"
+    descricao: "Custo de embalagem é lido de settings.packaging_cost e pré-preenchido em novos pedidos."
+    fonte: "src/ui/OrderModal.tsx:122-123"
+
+  # ───────────────────────────────────────────────────────
+  # 5. IMPORTAÇÃO
+  # ───────────────────────────────────────────────────────
+
+  - id: RN16
+    dominio: "Importação"
+    titulo: "Fluxo em Duas Fases"
+    descricao: >
+      Preview exibe dados analisados + alertas (duplicatas, SKUs faltantes).
+      Confirmação executa a importação com base em cache de 30 min.
+    fases:
+      - nome: "Preview"
+        acao: "Upload e análise do XLSX"
+        cache: "30 minutos"
+        token: "randomUUID"
+      - nome: "Confirmar"
+        acao: "Execução da importação em lote"
+        progresso: "polling por token de progresso"
+
+  - id: RN17
+    dominio: "Importação"
+    titulo: "Mapeamento de Status ML → Interno"
+    descricao: "Converte o texto de status do Mercado Livre para os IDs internos."
+    mapa:
+      - texto: "devolvido|devolucao"
+        status: "Devolvido"
+        id: 6
+      - texto: "cancelado|cancelada"
+        status: "Cancelado"
+        id: 5
+      - texto: "entregue"
+        status: "Entregue"
+        id: 4
+      - texto: "enviado|a caminho|tentaremos|nao.*entrega"
+        status: "Enviado"
+        id: 3
+      - texto: "producao|preparando"
+        status: "Produção"
+        id: 2
+      - texto: "outros"
+        status: "Novo"
+        id: 1
+    fonte: "server/importShared.ts:mapStatus"
+
+  - id: RN18
+    dominio: "Importação"
+    titulo: "Pacote de Diversos"
+    descricao: >
+      Linhas do XLSX marcadas como 'Pacote de diversos' são agregadas em um
+      único pedido. O status do pedido é o menos avançado entre todos os itens.
+    tipo: "bundle"
+    status_strategy: "conservadora (menos avançado)"
+
+  - id: RN19
+    dominio: "Importação"
+    titulo: "Cálculo de Cupom na Importação"
+    descricao: "Cupom = gap negativo entre total e soma dos componentes financeiros."
+    formula: "gap = total - (produtos + freteRecebido + tarifa + freteTotal + desconto); cupom = gap < 0 ? |gap| : 0"
+    destino: "order_financials.other_costs_cents"
+
+  # ───────────────────────────────────────────────────────
+  # 6. DRE
+  # ───────────────────────────────────────────────────────
+
+  - id: RN20
+    dominio: "DRE"
+    titulo: "Separação Realizado × A Realizar"
+    descricao: >
+      Realizado = pedidos Entregues com transação de receita vinculada.
+      A Realizar = pedidos Entregues sem transação de receita vinculada.
+    realizado: "entregue AND EXISTS (transaction_orders + transactions.type='income')"
+    a_realizar: "entregue AND NOT EXISTS (transaction_orders + transactions.type='income')"
+
+  - id: RN21
+    dominio: "DRE"
+    titulo: "Classificação de Transações"
+    descricao: "Receitas e despesas são categorizadas para composição do DRE."
+    categorias_padrao:
+      - nome: "Vendas"
+        tipo: "income"
+      - nome: "Estorno/Reembolso"
+        tipo: "income"
+      - nome: "Outras entradas"
+        tipo: "income"
+      - nome: "Impostos"
+        tipo: "expense"
+      - nome: "Insumos"
+        tipo: "expense"
+      - nome: "Energia"
+        tipo: "expense"
+      - nome: "Marketing"
+        tipo: "expense"
+      - nome: "Outros custos"
+        tipo: "expense"
+    subclasses_despesa: ["fixed", "variable"]
+
+  # ───────────────────────────────────────────────────────
+  # 7. DASHBOARD
+  # ───────────────────────────────────────────────────────
+
+  - id: RN22
+    dominio: "Dashboard"
+    titulo: "Filtro Padrão e Exclusão de Devolvidos"
+    descricao: "Se nenhum período informado, usa mês corrente. Devolvidos são excluídos."
+    filtro_padrao: "date('now', 'start of month')"
+    exclusao: "status_id = 6 (Devolvido)"
+
+  - id: RN23
+    dominio: "Dashboard"
+    titulo: "Agrupamento Temporal Automático"
+    regras:
+      - ate_30_dias: "diário"
+      - 31_a_90_dias: "semanal"
+      - acima_de_90_dias: "mensal"
+
+  - id: RN24
+    dominio: "Dashboard"
+    titulo: "Comparação com Período Anterior"
+    descricao: "Calcula automaticamente os totais do período anterior equivalente."
+
+  # ───────────────────────────────────────────────────────
+  # 8. BACKUP
+  # ───────────────────────────────────────────────────────
+
+  - id: RN25
+    dominio: "Backup"
+    titulo: "Backup Automático Diário"
+    descricao: "Executa a cada hora; só cria backup se não existir para a data atual."
+    periodicidade: "1 hora (setInterval)"
+    condicao: "backup-YYYY-MM-DD.sqlite não existe"
+    destino: "data/backups/backup-{data}.sqlite"
+
+  - id: RN26
+    dominio: "Backup"
+    titulo: "Política de Retenção"
+    descricao: "Últimos 30 dias: todos os backups. Anteriores: 1 por mês."
+    retencao_recente: "30 dias (todos)"
+    retencao_antiga: "1 por mês (último do mês)"
+    limpeza: "arquivos fora do padrão backup-YYYY-MM-DD.sqlite são removidos"
+
+  # ───────────────────────────────────────────────────────
+  # 9. KANBAN
+  # ───────────────────────────────────────────────────────
+
+  - id: RN27
+    dominio: "Kanban"
+    titulo: "Colunas Padrão"
+    colunas: ["Backlog", "Fazendo", "Pronto"]
+    coluna_conclusao: "Pronto"
+
+  - id: RN28
+    dominio: "Kanban"
+    titulo: "Conclusão Automática"
+    descricao: "Cards movidos para coluna is_done_column = true recebem done_at = now()."
+    campo: "done_at"
+    gatilho: "coluna destino tem is_done_column = 1"
+
+  - id: RN29
+    dominio: "Kanban"
+    titulo: "Proteção de Exclusão"
+    descricao: "Não é possível excluir coluna que contenha cards."
+    resposta: "HTTP 409"
+
+  - id: RN30
+    dominio: "Kanban"
+    titulo: "Posicionamento Automático"
+    descricao: "Novos cards/colunas são posicionados ao final."
+
+  # ───────────────────────────────────────────────────────
+  # 10. AUTENTICAÇÃO
+  # ───────────────────────────────────────────────────────
+
+  - id: RN31
+    dominio: "Autenticação"
+    titulo: "Opcional por ENV"
+    descricao: "Autenticação habilitada via AUTH_ENABLED=true. Desabilitada por padrão."
+    env: "AUTH_ENABLED"
+    padrao: false
+
+  - id: RN32
+    dominio: "Autenticação"
+    titulo: "Sessão com TTL"
+    descricao: "Tokens de 32 bytes hex em memória, expiram em 8h."
+    token_length: 32
+    formato: "hex"
+    ttl_segundos: 28800
+    limpeza: "a cada 3600s"
+    rate_limit_login: "5 tentativas / 15 min"
+
+  - id: RN33
+    dominio: "Autenticação"
+    titulo: "Setup Único de Senha"
+    descricao: "Senha só pode ser configurada uma vez."
+    resposta_duplicata: "HTTP 409"
+
+  # ───────────────────────────────────────────────────────
+  # 11. AUDITORIA
+  # ───────────────────────────────────────────────────────
+
+  - id: RN34
+    dominio: "Auditoria"
+    titulo: "Log Obrigatório"
+    descricao: "Toda operação CUD em entidades gera registro no audit_log."
+    entidades_auditadas:
+      - "order"
+      - "product"
+      - "customer"
+      - "store"
+      - "transaction"
+      - "todo"
+      - "todo_column"
+      - "auth"
+    campos_log: ["action", "entity", "entity_id", "description", "created_at"]
+
+  # ───────────────────────────────────────────────────────
+  # 12. CONFIGURAÇÕES
+  # ───────────────────────────────────────────────────────
+
+  - id: RN35
+    dominio: "Configurações"
+    titulo: "Valores Padrão de Produção"
+    settings:
+      - chave: "pla_price_per_kg"
+        valor: "10000"
+        descricao: "Preço do PLA por kg (centavos)"
+      - chave: "energy_cost_per_hour"
+        valor: "10"
+        descricao: "Custo de energia por hora (centavos)"
+      - chave: "machine_value"
+        valor: "800000"
+        descricao: "Valor da impressora (centavos)"
+      - chave: "machine_lifespan_hours"
+        valor: "3000"
+        descricao: "Vida útil da máquina em horas"
+      - chave: "maintenance_factor"
+        valor: "10"
+        descricao: "Fator de manutenção (%)"
+      - chave: "error_rate"
+        valor: "10"
+        descricao: "Taxa de erro (%)"
+      - chave: "packaging_cost"
+        valor: "0"
+        descricao: "Custo de embalagem por pedido (centavos)"
+      - chave: "opening_balance_cents"
+        valor: "520000"
+        descricao: "Saldo inicial do financeiro (centavos)"
