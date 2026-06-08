@@ -6,6 +6,13 @@ Separação total entre ambiente de desenvolvimento (alterações no código) e 
 
 ---
 
+## Repositório
+
+- **URL:** https://github.com/leozaneti/3dmanager
+- Branches: `main` (produção) e `dev` (desenvolvimento)
+
+---
+
 ## Estrutura de Branches
 
 | Branch | Uso | Banco |
@@ -58,42 +65,38 @@ git checkout dev
 
 # 2. Voltar pra main e mesclar
 git checkout main
-# (opcional) npm run backup
+npm run backup       # sempre backup antes de mesclar
 git merge dev
 
-# 3. Rodar versão estável
+# 3. Buildar e rodar versão estável
+npm run build
 npm run start
+
+# 4. Sincronizar GitHub
+git push
+git checkout dev
+git push
 ```
 
 ---
 
 ## Backup
 
-- `npm run backup` — copia `data/prod.sqlite` para `data/backups/` com timestamp
+- `npm run backup` — copia `data/prod.sqlite` para `data/backups/prod-{timestamp}.sqlite`
 - Sempre fazer backup antes de mesclar `dev` → `main`
 
 ---
 
-## Configuração Inicial (apenas uma vez)
+## Configuração Inicial (já executada)
 
 ```bash
 git init
 git add .
 git commit -m "v0.1"
-# Criar repositório no GitHub (via navegador)
-git remote add origin <url-do-repositorio>
-git push -u origin main
+git remote add origin https://github.com/leozaneti/3dmanager.git
+git push -u origin main --force
 git checkout -b dev
 git push -u origin dev
-```
-
-Depois criar os bancos iniciais:
-
-```bash
-# Criar banco de dev
-DB_ENV=dev npm run dev
-# Criar banco de prod
-DB_ENV=prod npm run start
 ```
 
 ---
@@ -105,6 +108,8 @@ O arquivo `.gitignore` ignora:
 - `node_modules/`
 - `dist/`
 - `dist-server/`
-- `data/prod.sqlite` (dados reais não vão pro GitHub)
+- `data/*.sqlite` (dados não vão pro GitHub)
+- `data/*.db`
+- `data/backups/`
 - `*.log`
 - `.env`
