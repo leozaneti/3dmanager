@@ -44,12 +44,16 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Filtros por data, status, loja e busca textual
 - Auto-estorno financeiro ao marcar como Devolvido no Mercado Livre
 
+![Pedidos](docs/screenshots/02-pedidos.png)
+
 ### 📥 Importação de Pedidos (Mercado Livre)
 - Upload de planilha XLSX com preview antes de confirmar
 - Parse automático: mapeamento de status ML → interno
 - Detecção de duplicatas e SKUs faltantes
 - Agregação de "Pacote de diversos" em pedido único
 - Merge inteligente de clientes (por documento ou nome+CEP)
+
+![Importar](docs/screenshots/07-importar.png)
 
 ### 💰 Financeiro
 - Lançamentos de receitas e despesas avulsos
@@ -60,11 +64,15 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
   - A Realizar = pedido entregue ainda não faturado
 - Saldo inicial configurável
 
+![Financeiro](docs/screenshots/05-financeiro.png)
+
 ### 📊 Dashboard e KPIs
 - Faturamento bruto, resultado da venda, lucro e margem
 - Ticket médio, comparação com período anterior
 - Gráfico de receita × despesa com agrupamento automático (diário, semanal, mensal)
 - Filtro por data com exclusão automática de devolvidos
+
+![Dashboard](docs/screenshots/01-dashboard.png)
 
 ### 🏭 Produtos e Calculadora de Custo
 - Cadastro com SKU, peso, tempo de impressão e custo adicional
@@ -75,6 +83,10 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
   - **Taxa de erro**: margem de segurança sobre o subtotal
 - Recalculo retroativo de custo em pedidos existentes (por data ou global)
 
+| Produtos | Calculadora de Custo |
+|----------|----------------------|
+| ![Produtos](docs/screenshots/03-produtos.png) | ![Calculadora](docs/screenshots/03b-produto-modal.png) |
+
 ### 👥 Clientes
 - Cadastro com histórico de pedidos e segmentação automática:
   - 🟢 **Novo** — primeira compra há ≤ 30 dias
@@ -84,11 +96,17 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Deduplicação por documento (fallback nome+CEP)
 - Merge de dados na importação
 
+| Clientes | Detalhe do Cliente |
+|----------|-------------------|
+| ![Clientes](docs/screenshots/04-clientes.png) | ![Cliente](docs/screenshots/04b-cliente-detalhe.png) |
+
 ### 📋 Kanban (Tasks / Ideias / To-Dos)
 - Quadro de tarefas com colunas **Backlog**, **Fazendo** e **Pronto**
 - Drag-and-drop entre colunas
 - Conclusão automática com timestamp ao mover para "Pronto"
 - Cards com descrição e posicionamento ajustável
+
+![Kanban](docs/screenshots/06-kanban.png)
 
 ### 🔐 Autenticação (opcional)
 - Sistema de sessão com hash de senha
@@ -237,7 +255,6 @@ main (produção) ←── merge ── dev (desenvolvimento)
 
 <div align="center">
   <sub>
-    Feito com PLA e filamento PETG 🧵<br>
     <a href="https://github.com/leozaneti/3dmanager">github.com/leozaneti/3dmanager</a>
   </sub>
 </div>
