@@ -17,7 +17,7 @@ import {
   Pencil,
   Trash2
 } from "lucide-react";
-import { api, AuditLogEntry, Customer, fromCents, Meta, money, Paginated, Product, type Settings as SettingsType, toCents } from "./api";
+import { api, AuditLogEntry, Customer, fromCents, Meta, money, OrdersResponse, Paginated, Product, type Settings as SettingsType, toCents } from "./api";
 import { calculateKpisFromTotals } from "./finance";
 import { CustomerDetailModal } from "./CustomerDetailModal";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
@@ -1379,8 +1379,8 @@ function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) 
                 const daysSinceFirst = customer.firstPurchase
                   ? Math.floor((Date.now() - new Date(customer.firstPurchase).getTime()) / 86400000)
                   : Infinity;
-                const isInactive = customer.orderCount > 0 && daysSinceLast > 180;
-                const isNew = customer.orderCount > 0 && daysSinceFirst <= 30 && !isInactive;
+                const isInactive = (customer.orderCount ?? 0) > 0 && daysSinceLast > 180;
+                const isNew = (customer.orderCount ?? 0) > 0 && daysSinceFirst <= 30 && !isInactive;
                 const isRecorrente = (customer.orderCount ?? 0) > 1;
                 const isOuro = customer.grossRevenueCents >= vipThreshold && customer.grossRevenueCents > 0;
                 return (
@@ -1568,7 +1568,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
   const qs = params.toString();
   const orders = useQuery({
     queryKey: ["orders", search, filterStatus, filterFrom, filterTo, filterStore, page],
-    queryFn: () => api<Paginated<any>>(`/orders${qs ? `?${qs}` : ""}`)
+    queryFn: () => api<OrdersResponse>(`/orders${qs ? `?${qs}` : ""}`)
   });
   const [orderBulkDeleteConfirm, setOrderBulkDeleteConfirm] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -1796,7 +1796,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
               setTooltip({ x: rect.right - 8, y: rect.bottom + 6, rows: [
                 { label: "Média por pedido", value: money(kpis.avgTicketCents) },
-                { label: "Pedidos considerados", value: orders.data?.activeOrderCount ?? 0 },
+                { label: "Pedidos considerados", value: String(orders.data?.activeOrderCount ?? 0) },
                 { label: "", value: "Pedidos devolvidos não entram", cls: "muted" as const },
               ]});
             }}

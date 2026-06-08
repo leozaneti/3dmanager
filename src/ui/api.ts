@@ -19,6 +19,26 @@ export type Settings = Record<string, { value: string; description: string }>;
 
 export type Paginated<T> = { data: T[]; total: number };
 
+type FilterTotals = {
+  orderCount: number;
+  productsAmountCents: number;
+  shippingCustomerCents: number;
+  shippingTotalCents: number;
+  platformFeeCents: number;
+  otherCostsCents: number;
+  discountCents: number;
+  itemsCostCents: number;
+  packagingCents: number;
+  additionalCostsCents: number;
+};
+
+export type OrdersResponse = Paginated<any> & {
+  activeTotal: number;
+  filterTotals: FilterTotals;
+  activeOrderCount: number;
+  statusCounts: { id: number; name: string; count: number }[];
+};
+
 export type AuditLogEntry = {
   id: number;
   action: string;
