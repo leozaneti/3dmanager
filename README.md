@@ -44,7 +44,9 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Filtros por data, status, loja e busca textual
 - Auto-estorno financeiro ao marcar como Devolvido no Mercado Livre
 
-![Pedidos](docs/screenshots/02-pedidos.png)
+| Listagem | Detalhe do Pedido |
+|----------|-------------------|
+| ![Pedidos](docs/screenshots/02-pedidos.png) | ![Pedido](docs/screenshots/02b-pedido-detalhe.png) |
 
 ### 📥 Importação de Pedidos (Mercado Livre)
 - Upload de planilha XLSX com preview antes de confirmar
