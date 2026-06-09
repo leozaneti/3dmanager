@@ -252,7 +252,11 @@ function FinanceMockup() {
   });
 
   const filteredOrders = (deliveredOrders.data?.data ?? []).filter((o: any) =>
-    orderSearch ? o.id.toString().includes(orderSearch) || (o.externalOrderId?.includes(orderSearch)) : true
+    orderSearch
+      ? o.id.toString().includes(orderSearch)
+        || o.externalOrderId?.includes(orderSearch)
+        || o.customerName?.toLowerCase().includes(orderSearch.toLowerCase())
+      : true
   ).slice(0, 10);
 
   const catList = categories.data?.data ?? [];
@@ -509,28 +513,30 @@ function FinanceMockup() {
               )}
             </div>
           </div>
-          <div className="order-card">
-            <div className="order-card-title">Vincular pedidos entregues</div>
-            <div className="finance-linked-orders-mock">
-              <input placeholder="Buscar por #ID..." value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
-              {filteredOrders.map((o: any) => {
-                const selected = txOrderIds.includes(o.id);
-                return (
-                  <div key={o.id} className="finance-linked-order-row" style={{ cursor: "pointer", opacity: selected ? 1 : 0.6 }} onClick={() => {
-                    setTxOrderIds((prev) => selected ? prev.filter((id) => id !== o.id) : [...prev, o.id]);
-                  }}>
-                    <span>#{o.id}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""} · {o.customerName || "—"}</span>
-                    <span style={{ color: selected ? "#059669" : "#999", fontWeight: 700 }}>{selected ? "✓" : "+"}</span>
+          {txType === "income" && txCategory === "Vendas" && (
+            <div className="order-card">
+              <div className="order-card-title">Vincular pedidos entregues</div>
+              <div className="finance-linked-orders-mock">
+                <input placeholder="Buscar por #ID ou nome do cliente..." value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
+                {filteredOrders.map((o: any) => {
+                  const selected = txOrderIds.includes(o.id);
+                  return (
+                    <div key={o.id} className="finance-linked-order-row" style={{ cursor: "pointer", opacity: selected ? 1 : 0.6 }} onClick={() => {
+                      setTxOrderIds((prev) => selected ? prev.filter((id) => id !== o.id) : [...prev, o.id]);
+                    }}>
+                      <span>#{o.id}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""} · {o.customerName || "—"}</span>
+                      <span style={{ color: selected ? "#059669" : "#999", fontWeight: 700 }}>{selected ? "✓" : "+"}</span>
+                    </div>
+                  );
+                })}
+                {txOrderIds.length > 0 && (
+                  <div style={{ fontSize: 12, color: "#666", padding: "4px 0" }}>
+                    {txOrderIds.length} pedido(s) vinculado(s)
                   </div>
-                );
-              })}
-              {txOrderIds.length > 0 && (
-                <div style={{ fontSize: 12, color: "#666", padding: "4px 0" }}>
-                  {txOrderIds.length} pedido(s) vinculado(s)
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <FormActions onCancel={() => { setModalOpen(false); setEditingTx(null); }} submitLabel={editingTx ? "Atualizar" : "Salvar"} submitting={saveMutation.isPending || autoLoading} />
         </div>
       </ModalShell>
