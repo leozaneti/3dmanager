@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calculateOrderTotals } from "../calculations.js";
-import { calculateKpisFromTotals } from "../../src/ui/finance";
+import { calculateKpisFromTotals } from "../../src/ui/finance.js";
 
 const BASE = {
   productsAmountCents: 10000,
