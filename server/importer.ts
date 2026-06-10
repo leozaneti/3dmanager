@@ -190,6 +190,7 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
             total: order.financials.total,
           },
           items: resolvedItems,
+          delivery: { sentDate: order.delivery?.sentDate, deliveredDate: order.delivery?.deliveredDate },
         });
         updatedOrders++;
         db.log("update", "order", existingId, `Pedido reimportado`);
@@ -285,7 +286,7 @@ function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: num
   })();
   const additionalCostsCents = 0;
 
-  db.batch(`INSERT INTO orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes) VALUES (${literal(storeId)}, ${literal(checkKey)}, ${literal(order.saleDate)}, ${literal(statusId)}, ${literal(order.statusDescription)}, ${literal(salesChannelId)}, ${literal(customerId)}, '')`);
+  db.batch(`INSERT INTO orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) VALUES (${literal(storeId)}, ${literal(checkKey)}, ${literal(order.saleDate)}, ${literal(statusId)}, ${literal(order.statusDescription)}, ${literal(salesChannelId)}, ${literal(customerId)}, '', ${literal(order.delivery?.sentDate ?? null)}, ${literal(order.delivery?.deliveredDate ?? null)})`);
 
   db.batch(`DELETE FROM _oi`);
   db.batch(`INSERT INTO _oi SELECT last_insert_rowid()`);
@@ -355,6 +356,7 @@ function updateExistingOrder(existingId: number, data: {
   statusDescription: string;
   financials: { productsRevenue: number; shippingFee: number; shippingRevenue: number; platformFee: number; discount: number; total: number; };
   items: ResolvedItem[];
+  delivery?: { sentDate?: string; deliveredDate?: string };
 }) {
   const current = single("select status_id from orders where id = ?", [existingId]) as any;
   const currentStatusId = current?.status_id ?? 0;
@@ -377,8 +379,9 @@ function updateExistingOrder(existingId: number, data: {
   const currentPackaging = isReturned ? 0 : (single("select packaging_cents from order_financials where order_id = ?", [existingId]) as any)?.packaging_cents ?? 0;
   const currentAdditional = isReturned ? 0 : (single("select additional_costs_cents from order_financials where order_id = ?", [existingId]) as any)?.additional_costs_cents ?? 0;
 
-  db.prepare("update orders set status_id = ?, status_description = ?, updated_at = current_timestamp where id = ?").run(
-    finalStatusId, data.statusDescription, existingId
+  const del = data.delivery;
+  db.prepare(`update orders set status_id = ?, status_description = ?, delivered_date = coalesce(?, delivered_date), updated_at = current_timestamp where id = ?`).run(
+    finalStatusId, data.statusDescription, del?.deliveredDate ?? null, existingId
   );
 
   db.prepare(
