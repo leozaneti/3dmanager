@@ -1736,6 +1736,8 @@ app.get("/api/transactions", (request) => {
   }
   const where = conditions.length ? "where " + conditions.join(" and ") : "";
   const total = (get(`select count(*) as c from transactions t ${where}`, params) as any)?.c ?? 0;
+  const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 500);
+  const offset = Math.max(Number(query.offset) || 0, 0);
   const data = all(
     `select t.*,
       (select json_group_array(json_object('id', o.id, 'externalOrderId', o.external_order_id, 'customer', c.name))
@@ -1744,8 +1746,9 @@ app.get("/api/transactions", (request) => {
        left join customers c on c.id = o.customer_id
        where to2.transaction_id = t.id) as orders
      from transactions t ${where}
-     order by t.date desc, t.id desc`,
-    params
+     order by t.date desc, t.id desc
+     limit ? offset ?`,
+    [...params, limit, offset]
   ).map((r: any) => ({
     id: r.id,
     date: r.date,
