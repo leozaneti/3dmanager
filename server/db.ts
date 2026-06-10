@@ -360,6 +360,11 @@ create table if not exists import_log (
   addColumnIfMissing("import_log", "updated", "integer not null default 0");
   addColumnIfMissing("order_financials", "packaging_cents", "integer not null default 0");
   addColumnIfMissing("order_financials", "additional_costs_cents", "integer not null default 0");
+
+  addColumnIfMissing("transactions", "source_id", "text");
+  addColumnIfMissing("transactions", "source_type", "text");
+  addColumnIfMissing("transactions", "account", "text");
+  addColumnIfMissing("transactions", "external_tx_number", "text");
     const custCols = sqlite("pragma table_info(customers)", true);
     if (custCols.find((c) => c.name === "source_channel")) {
         sqlite("alter table customers drop column source_channel");
@@ -430,8 +435,11 @@ function seed() {
     ["Devolvido", 6, 1]
   ].forEach((row) => statusStmt.run(...row));
 
-  const columnStmt = db.prepare("insert or ignore into todo_columns (name, position, is_done_column) values (?, ?, ?)");
-  [["Backlog", 0, 0], ["Fazendo", 1, 0], ["Pronto", 2, 1]].forEach((row) => columnStmt.run(...row));
+  const hasColumns = (db.prepare("select count(*) as c from todo_columns").get([]) as any)?.c ?? 0;
+  if (hasColumns === 0) {
+    const columnStmt = db.prepare("insert into todo_columns (name, position, is_done_column) values (?, ?, ?)");
+    [["Backlog", 0, 0], ["Fazendo", 1, 0], ["Pronto", 2, 1]].forEach((row) => columnStmt.run(...row));
+  }
 
   // remove duplicate columns (keep lowest id per name)
   db.exec(`delete from todo_columns where id not in (select min(id) from todo_columns group by name)`);

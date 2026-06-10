@@ -11,6 +11,7 @@ import { calculateOrderTotals } from "./calculations.js";
 import { db, migrate, moneyFields, TX_ID } from "./db.js";
 import { importMercadoLivre, type ImportResult } from "./importer.js";
 import type { ParsedOrder } from "./xlsxParser.js";
+import { previewMpCsv, confirmMpImport } from "./importerMp.js";
 import { hashPassword, verifyPassword, createSession, deleteSession, validateSession, clearExpiredSessions } from "./auth.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { normalize, mapStatus } from "./importShared.js";
@@ -486,6 +487,39 @@ app.get("/api/imports/progress/:token", (request, reply) => {
   };
 });
 
+/* ───── MP Settlement Import ───── */
+
+app.post("/api/imports/mp/preview", async (request, reply) => {
+  try {
+    const data = await request.file();
+    if (!data) {
+      reply.code(400);
+      return { error: "Arquivo não enviado" };
+    }
+    const fileBuffer = Buffer.from(await data.toBuffer());
+    const text = fileBuffer.toString("utf-8");
+    return previewMpCsv(text);
+  } catch (error) {
+    console.error("MP PREVIEW ERROR:", error);
+    reply.code(400);
+    return { error: (error as Error).message };
+  }
+});
+
+app.post("/api/imports/mp/confirm", async (request, reply) => {
+  try {
+    const { token, selectedKeys } = z.object({
+      token: z.string().min(1),
+      selectedKeys: z.array(z.string()).optional().default([]),
+    }).parse(request.body);
+    return confirmMpImport(token, selectedKeys);
+  } catch (error) {
+    console.error("MP CONFIRM ERROR:", error);
+    reply.code(400);
+    return { error: (error as Error).message };
+  }
+});
+
 app.get("/api/audit-log", (request) => {
   const query = request.query as Record<string, unknown>;
   const limit = query.limit ? Number(query.limit) : 50;
@@ -899,9 +933,10 @@ function orderListWhere(query: Record<string, unknown>) {
       "(s.name like ? or os.name like ? or sc.name like ?" +
       " or c.name like ? or c.document like ? or c.cidade like ? or c.phone like ?" +
       " or o.external_order_id like ? or cast(o.id as text) like ?" +
+      " or o.status_description like ? or o.notes like ?" +
       " or exists (select 1 from order_items oi where oi.order_id = o.id and (oi.sku like ? or oi.listing_title like ?)))"
     );
-    params.push(s, s, s, s, s, s, s, s, s, s, s);
+    params.push(s, s, s, s, s, s, s, s, s, s, s, s);
   }
   return { where: conditions.length ? `where ${conditions.join(" and ")}` : "", params };
 }
@@ -1243,7 +1278,7 @@ function dashboardTotals(conditions: string[], params: unknown[]) {
   const where = filters.length ? "where " + filters.join(" and ") : "";
   const rows = all(
     `select
-      o.id, o.store_id as storeId, s.name as storeName, sc.name as channelName,
+      o.id, o.sale_date as saleDate, o.store_id as storeId, s.name as storeName, sc.name as channelName,
       of.products_amount_cents as productsAmountCents,
       of.shipping_total_cents as shippingTotalCents,
       of.shipping_customer_cents as shippingCustomerCents,
@@ -1377,23 +1412,17 @@ app.get("/api/dashboard", (request) => {
   }, {});
 
   const groupBy = (query.groupBy ? String(query.groupBy) : (endDate && startDate ? getDefaultGroupBy(startDate, endDate) : "day")) as "day" | "week" | "month";
-  let timeSeriesFormat: string;
-  if (groupBy === "week") {
-    timeSeriesFormat = "strftime('%Y-W%W', o.sale_date)";
-  } else if (groupBy === "month") {
-    timeSeriesFormat = "strftime('%Y-%m', o.sale_date)";
-  } else {
-    timeSeriesFormat = "date(o.sale_date)";
-  }
 
   const timeSeriesRows = orderRows.reduce<Record<string, { period: string; revenueCents: number; profitCents: number; costsCents: number; orderCount: number }>>((acc, row) => {
     const calc = calculateOrderTotals(row);
     let period: string;
     if (groupBy === "week") {
-      const d = new Date(row.saleDate);
-      const startOfYear = new Date(d.getFullYear(), 0, 1);
-      const weekNum = Math.ceil(((d.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
-      period = `${d.getFullYear()}-S${String(weekNum).padStart(2, "0")}`;
+      const d = new Date(row.saleDate + "T12:00:00");
+      const dayNum = d.getDay() || 7;
+      d.setDate(d.getDate() + 4 - dayNum);
+      const yearStart = new Date(d.getFullYear(), 0, 1);
+      const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      period = `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
     } else if (groupBy === "month") {
       period = String(row.saleDate).slice(0, 7);
     } else {
@@ -1410,33 +1439,41 @@ app.get("/api/dashboard", (request) => {
 
   const timeSeries = Object.values(timeSeriesRows).sort((a, b) => a.period.localeCompare(b.period));
 
-  const productsByProfit = all(
-    `select
-      coalesce(p.name, oi.listing_title, oi.sku, 'Sem produto') as name,
-      sum(oi.quantity) as quantity,
-      sum(oi.quantity * oi.sale_unit_price_cents) as revenueCents,
-      sum(oi.quantity * (oi.sale_unit_price_cents - oi.cost_unit_cents)) as profitCents
-    from order_items oi
-    join orders o on o.id = oi.order_id
-    left join products p on p.id = oi.product_id
-    ${whereClause}
-    group by name
-    order by profitCents desc
-    limit 8`,
-    params
-  );
+  if (timeSeries.length > 0 && !allTime && startDate && endDate) {
+    const periodMap = new Map(timeSeries.map(d => [d.period, d]));
+    const current = new Date(startDate + "T12:00:00");
+    const end = new Date(endDate + "T12:00:00");
+    while (current <= end) {
+      let period: string;
+      if (groupBy === "week") {
+        const dayNum = current.getDay() || 7;
+        const thurs = new Date(current);
+        thurs.setDate(current.getDate() + 4 - dayNum);
+        const yearStart = new Date(thurs.getFullYear(), 0, 1);
+        const weekNum = Math.ceil((((thurs.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        period = `${thurs.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+        current.setDate(current.getDate() + 7);
+      } else if (groupBy === "month") {
+        period = current.toISOString().slice(0, 7);
+        current.setMonth(current.getMonth() + 1);
+      } else {
+        period = current.toISOString().slice(0, 10);
+        current.setDate(current.getDate() + 1);
+      }
+      if (!periodMap.has(period)) {
+        timeSeries.push({ period, revenueCents: 0, profitCents: 0, costsCents: 0, orderCount: 0 });
+      }
+    }
+    timeSeries.sort((a, b) => a.period.localeCompare(b.period));
+  }
 
   const allProductRows = productRows as any[];
   for (const p of allProductRows) {
     const revenue = p.revenueCents || 0;
     p.marginPercent = revenue ? ((p.profitCents || 0) / revenue) * 100 : 0;
   }
-  for (const p of productsByProfit as any[]) {
-    const revenue = p.revenueCents || 0;
-    p.marginPercent = revenue ? ((p.profitCents || 0) / revenue) * 100 : 0;
-  }
 
-  return { totals, previousTotals, products: productRows, productsByProfit, channels: Object.values(channelRows), stores: Object.values(storeRows), timeSeries };
+  return { totals, previousTotals, products: productRows, channels: Object.values(channelRows), stores: Object.values(storeRows), timeSeries };
 });
 
 app.get("/api/todo-board", (request) => {
@@ -1672,6 +1709,8 @@ const transactionSchema = z.object({
   costType: z.enum(["fixed", "variable"]).nullable().optional(),
   notes: z.string().nullable().optional(),
   orderIds: z.array(z.coerce.number().int().positive()).default([]),
+  account: z.string().nullable().optional(),
+  externalTransactionNumber: z.string().nullable().optional(),
 });
 
 app.get("/api/transactions", (request) => {
@@ -1683,6 +1722,18 @@ app.get("/api/transactions", (request) => {
   if (query.type) { conditions.push("t.type = ?"); params.push(query.type); }
   if (query.category) { conditions.push("t.category = ?"); params.push(query.category); }
   if (query.costType) { conditions.push("t.cost_type = ?"); params.push(query.costType); }
+  if (query.q) {
+    const q = `%${query.q}%`;
+    conditions.push(`(
+      t.description like ? or t.account like ? or t.external_tx_number like ?
+      or exists (select 1 from transaction_orders txo2
+        join orders o2 on o2.id = txo2.order_id
+        left join customers c2 on c2.id = o2.customer_id
+        where txo2.transaction_id = t.id
+        and (cast(o2.id as text) like ? or o2.external_order_id like ? or c2.name like ?))
+    )`);
+    params.push(q, q, q, q, q, q);
+  }
   const where = conditions.length ? "where " + conditions.join(" and ") : "";
   const total = (get(`select count(*) as c from transactions t ${where}`, params) as any)?.c ?? 0;
   const data = all(
@@ -1704,9 +1755,20 @@ app.get("/api/transactions", (request) => {
     amountCents: r.amount_cents,
     costType: r.cost_type,
     notes: r.notes,
+    account: r.account,
+    externalTransactionNumber: r.external_tx_number,
     orders: r.orders ? JSON.parse(r.orders) : [],
   }));
   return { data, total };
+});
+
+app.get("/api/transactions/descriptions", (request) => {
+  const q = (request.query as { q?: string }).q ?? "";
+  const data = all(
+    "select distinct description from transactions where description like ? order by description limit 20",
+    [`%${q}%`]
+  ).map((r: any) => r.description);
+  return { data };
 });
 
 app.get("/api/transactions/:id", (request, reply) => {
@@ -1724,15 +1786,16 @@ app.get("/api/transactions/:id", (request, reply) => {
   return {
     id: row.id, date: row.date, type: row.type, category: row.category,
     description: row.description, amountCents: row.amount_cents,
-    costType: row.cost_type, notes: row.notes, orders,
+    costType: row.cost_type, notes: row.notes, account: row.account,
+    externalTransactionNumber: row.external_tx_number, orders,
   };
 });
 
 app.post("/api/transactions", async (request, reply) => {
   const data = transactionSchema.parse(request.body);
   const result = db.prepare(
-    "insert into transactions (date, type, category, description, amount_cents, cost_type, notes) values (?, ?, ?, ?, ?, ?, ?)"
-  ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null);
+    "insert into transactions (date, type, category, description, amount_cents, cost_type, notes, account, external_tx_number) values (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null, data.account ?? null, data.externalTransactionNumber ?? null);
   const txId = Number(result.lastInsertRowid);
   if (data.orderIds.length > 0) {
     const stmt = db.prepare("insert or ignore into transaction_orders (transaction_id, order_id) values (?, ?)");
@@ -1749,8 +1812,8 @@ app.put("/api/transactions/:id", async (request, reply) => {
   if (!existing) { reply.code(404); return { error: "Transação não encontrada" }; }
   const data = transactionSchema.parse(request.body);
   db.prepare(
-    "update transactions set date = ?, type = ?, category = ?, description = ?, amount_cents = ?, cost_type = ?, notes = ?, updated_at = current_timestamp where id = ?"
-  ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null, id);
+    "update transactions set date = ?, type = ?, category = ?, description = ?, amount_cents = ?, cost_type = ?, notes = ?, account = ?, external_tx_number = ?, updated_at = current_timestamp where id = ?"
+  ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null, data.account ?? null, data.externalTransactionNumber ?? null, id);
   db.prepare("delete from transaction_orders where transaction_id = ?").run(id);
   if (data.orderIds.length > 0) {
     const stmt = db.prepare("insert or ignore into transaction_orders (transaction_id, order_id) values (?, ?)");
@@ -1825,51 +1888,108 @@ app.get("/api/finance/dre", (request) => {
   if (endDate) { dateCond.push("date(o.sale_date) <= date(?)"); dateParams.push(endDate); }
   const dateWhere = dateCond.length ? "and " + dateCond.join(" and ") : "";
 
-  /* helper: aggregate order financials with a status + existence condition */
-  function orderTotals(statusWhere: string, havingSubq?: string) {
-    const subq = havingSubq ? `and exists (${havingSubq})` : "";
-    return (get(
-      `select
-        coalesce(sum(of.products_amount_cents), 0) as productsAmountCents,
-        coalesce(sum(of.shipping_total_cents), 0) as shippingTotalCents,
-        coalesce(sum(of.shipping_customer_cents), 0) as shippingCustomerCents,
-        coalesce(sum(of.platform_fee_cents), 0) as platformFeeCents,
-        coalesce(sum(of.discount_cents), 0) as discountCents,
-        coalesce(sum(of.other_costs_cents), 0) as otherCostsCents,
-        coalesce(sum(of.packaging_cents), 0) as packagingCents,
-        coalesce(sum(of.additional_costs_cents), 0) as additionalCostsCents,
-        coalesce(sum(oi_sum.item_cost), 0) as itemsCostCents,
-        count(*) as orderCount
-      from orders o
-      join order_statuses os on os.id = o.status_id
-      join order_financials of on of.order_id = o.id
-      left join (select order_id, sum(quantity * cost_unit_cents) as item_cost from order_items group by order_id) oi_sum on oi_sum.order_id = o.id
-      where ${statusWhere} ${dateWhere} ${subq}`,
-      dateParams
-    ) as any) ?? {};
-  }
+  const orderBase = `
+    from orders o
+    join order_statuses os on os.id = o.status_id
+    join order_financials of on of.order_id = o.id
+    left join (select order_id, sum(quantity * cost_unit_cents) as item_cost from order_items group by order_id) oi_sum on oi_sum.order_id = o.id
+  `;
 
-  /* Realizado: Entregue + tem ao menos uma transaction de entrada vinculada */
-  const realized = orderTotals(
-    "os.name = 'Entregue'",
-    `select 1 from transaction_orders txo
+  /* Realized: orders Entregue com income transaction */
+  const realizedRevenue = (get(`
+    select coalesce(sum(tx_sum.income), 0) as revenueCents
+    from orders o
+    join order_statuses os on os.id = o.status_id
+    left join (
+      select txo.order_id, sum(tx.amount_cents) as income
+      from transaction_orders txo
       join transactions tx on tx.id = txo.transaction_id
-      where txo.order_id = o.id and tx.type = 'income'`
-  );
+      where tx.type = 'income'
+      group by txo.order_id
+    ) tx_sum on tx_sum.order_id = o.id
+    where os.name = 'Entregue' ${dateWhere}
+    and tx_sum.income is not null
+  `, dateParams) as any)?.revenueCents ?? 0;
 
-  /* A Realizar: total de Entregue menos o Realizado */
-  const totalDelivered = orderTotals("os.name = 'Entregue'");
-  const pendingCalc: Record<string, number> = {};
-  for (const k of Object.keys(totalDelivered)) {
-    pendingCalc[k] = Number(totalDelivered[k]) - Number(realized[k as keyof typeof realized] ?? 0);
+  const realizedCosts = (get(`
+    select
+      coalesce(sum(oi_sum.item_cost), 0) as itemsCostCents,
+      coalesce(sum(of.packaging_cents), 0) as packagingCents,
+      coalesce(sum(of.additional_costs_cents + of.other_costs_cents), 0) as additionalCostsCents,
+      count(*) as orderCount
+    ${orderBase}
+    where os.name = 'Entregue' ${dateWhere}
+    and exists (select 1 from transaction_orders txo join transactions tx on tx.id = txo.transaction_id where txo.order_id = o.id and tx.type = 'income')
+  `, dateParams) as any) ?? {};
+
+  const realized = {
+    revenueCents: realizedRevenue,
+    itemsCostCents: realizedCosts.itemsCostCents ?? 0,
+    packagingCents: realizedCosts.packagingCents ?? 0,
+    additionalCostsCents: realizedCosts.additionalCostsCents ?? 0,
+    orderCount: realizedCosts.orderCount ?? 0,
+  };
+
+  /* Pending: orders Entregue SEM income transaction → estimado via order_financials */
+  const pending = (get(`
+    select
+      coalesce(sum(of.amount_received_cents), 0) as revenueCents,
+      coalesce(sum(oi_sum.item_cost), 0) as itemsCostCents,
+      coalesce(sum(of.packaging_cents), 0) as packagingCents,
+      coalesce(sum(of.additional_costs_cents + of.other_costs_cents), 0) as additionalCostsCents,
+      count(*) as orderCount
+    ${orderBase}
+    where os.name = 'Entregue' ${dateWhere}
+    and not exists (select 1 from transaction_orders txo join transactions tx on tx.id = txo.transaction_id where txo.order_id = o.id and tx.type = 'income')
+  `, dateParams) as any) ?? {};
+
+  /* Warnings: discrepância entre recebido e esperado por pedido */
+  const discrepantRows = (db.prepare(`
+    select
+      o.id as orderId,
+      coalesce(o.external_order_id, '') as externalId,
+      coalesce(tx_sum.income, 0) as receivedCents,
+      of.amount_received_cents as expectedCents
+    from orders o
+    join order_statuses os on os.id = o.status_id
+    join order_financials of on of.order_id = o.id
+    left join (
+      select txo.order_id, sum(tx.amount_cents) as income
+      from transaction_orders txo
+      join transactions tx on tx.id = txo.transaction_id
+      where tx.type = 'income'
+      group by txo.order_id
+    ) tx_sum on tx_sum.order_id = o.id
+    where os.name = 'Entregue'
+    and tx_sum.income is not null
+  `).all() as any[]) ?? [];
+
+  const warnings: { orderId: number; externalId: string; receivedCents: number; expectedCents: number; diffCents: number }[] = [];
+  for (const r of discrepantRows) {
+    const diff = r.receivedCents - r.expectedCents;
+    const threshold = Math.max(100, Math.abs(r.expectedCents) * 0.05);
+    if (Math.abs(diff) > threshold) {
+      warnings.push({
+        orderId: r.orderId,
+        externalId: r.externalId,
+        receivedCents: r.receivedCents,
+        expectedCents: r.expectedCents,
+        diffCents: diff,
+      });
+    }
   }
 
   /* Transaction summaries */
-  function txSummary(type: string, costType?: string, excludeCategory?: string) {
+  function txSummary(type: string, costType?: string, excludeCategory?: string, includeUnlinkedOfCategory?: string) {
     const conditions = ["t.type = ?"];
     const params: unknown[] = [type];
     if (costType) { conditions.push("t.cost_type = ?"); params.push(costType); }
-    if (excludeCategory) { conditions.push("t.category != ?"); params.push(excludeCategory); }
+    if (excludeCategory && !includeUnlinkedOfCategory) {
+      conditions.push("t.category != ?"); params.push(excludeCategory);
+    } else if (excludeCategory && includeUnlinkedOfCategory) {
+      conditions.push(`(t.category != ? or not exists (select 1 from transaction_orders txo where txo.transaction_id = t.id))`);
+      params.push(excludeCategory);
+    }
     if (startDate) { conditions.push("date(t.date) >= date(?)"); params.push(startDate); }
     if (endDate) { conditions.push("date(t.date) <= date(?)"); params.push(endDate); }
     const row = get(
@@ -1881,14 +2001,16 @@ app.get("/api/finance/dre", (request) => {
   }
 
   return {
-    orders: {
-      realized,
-      pending: pendingCalc,
-    },
+    orders: { realized, pending },
     transactions: {
       variableExpenses: txSummary("expense", "variable"),
       fixedExpenses: txSummary("expense", "fixed"),
-      otherIncome: txSummary("income", undefined, "Vendas"),
+      otherIncome: txSummary("income", undefined, "Vendas", "Vendas"),
+    },
+    warnings: {
+      discrepantOrders: warnings,
+      totalDiscrepancyCents: warnings.reduce((s, w) => s + w.diffCents, 0),
+      totalDiscrepancyOrders: warnings.length,
     },
   };
 });

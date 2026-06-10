@@ -10,6 +10,7 @@ import { ProductModal } from "./ProductModal";
 import { Notification } from "./Notification";
 import { Pagination } from "./Pagination";
 import { useSelection } from "../hooks/useSelection";
+import { ImportSettlementView } from "./ImportSettlementView";
 
 type ImportStatus = "idle" | "preview" | "importing" | "done" | "error";
 
@@ -66,6 +67,7 @@ interface ImportResultData {
 const PAGE_SIZE = 10;
 
 export function ImportView() {
+  const [importTab, setImportTab] = useState<"orders" | "mp">("orders");
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
   const [fileSize, setFileSize] = useState(0);
@@ -323,9 +325,37 @@ export function ImportView() {
     return step;
   };
 
+  const tabHeader = (
+    <div className="import-tabs">
+      <button
+        className={`import-tab ${importTab === "orders" ? "active" : ""}`}
+        onClick={() => setImportTab("orders")}
+      >
+        Pedidos ML
+      </button>
+      <button
+        className={`import-tab ${importTab === "mp" ? "active" : ""}`}
+        onClick={() => setImportTab("mp")}
+      >
+        Extrato MP
+      </button>
+    </div>
+  );
+
+  if (importTab === "mp") {
+    return (
+      <div className="import-view">
+        <h2 className="page-title">Importar</h2>
+        {tabHeader}
+        <ImportSettlementView />
+      </div>
+    );
+  }
+
   return (
     <div className="import-view">
-      <h2 className="page-title">Importar Pedidos</h2>
+      <h2 className="page-title">Importar</h2>
+      {tabHeader}
 
       {/* Stepper */}
       <div className="import-stepper">

@@ -82,7 +82,7 @@ export function App() {
 
   const meta = metaQuery.data;
 
-  function handleViewOrderFromCustomer(orderId: number) {
+  function handleEditOrder(orderId: number) {
     setPendingOrderId(orderId);
     setView("orders");
   }
@@ -113,8 +113,8 @@ export function App() {
       {view === "dashboard" && <Dashboard meta={meta} />}
       {view === "orders" && <Orders meta={meta} pendingOrderId={pendingOrderId} onConsumePendingOrder={() => setPendingOrderId(null)} />}
       {view === "products" && <Products meta={meta} />}
-      {view === "customers" && <Customers onViewOrder={handleViewOrderFromCustomer} />}
-      {view === "finance" && <FinanceMockup />}
+      {view === "customers" && <Customers onEditOrder={handleEditOrder} />}
+      {view === "finance" && <FinanceMockup onEditOrder={handleEditOrder} />}
       {view === "todos" && <KanbanView />}
       {view === "import" && <ImportView />}
       {view === "settings" && <Settings />}
@@ -134,7 +134,12 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
   );
 }
 
-function FinanceMockup() {
+const ACCOUNT_OPTIONS = [
+  "Mercado Pago", "Nubank", "Itaú", "Caixa", "Bradesco",
+  "Santander", "Inter", "PicPay", "Dinheiro", "Outra"
+];
+
+function FinanceMockup({ onEditOrder }: { onEditOrder?: (orderId: number) => void }) {
   const queryClient = useQueryClient();
   const today = new Date().toISOString().split("T")[0];
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -143,6 +148,7 @@ function FinanceMockup() {
   const [filterType, setFilterType] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterCostType, setFilterCostType] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
 
   /* Date presets */
   function setPreset(label: string) {
@@ -160,6 +166,7 @@ function FinanceMockup() {
   if (filterType) qs.set("type", filterType);
   if (filterCategory) qs.set("category", filterCategory);
   if (filterCostType) qs.set("costType", filterCostType);
+  if (filterSearch) qs.set("q", filterSearch);
   const sq = qs.toString();
 
   const transactions = useQuery({
@@ -191,38 +198,35 @@ function FinanceMockup() {
   const txFix = d?.transactions?.fixedExpenses ?? { total: 0, count: 0 };
   const txOther = d?.transactions?.otherIncome ?? { total: 0, count: 0 };
 
+  const dreWarnings = d?.warnings ?? { discrepantOrders: [], totalDiscrepancyCents: 0, totalDiscrepancyOrders: 0 };
+
   function calcDreRow(real: Record<string, number>, pend: Record<string, number>) {
-    const gross = (real.productsAmountCents ?? 0) + (real.shippingCustomerCents ?? 0) - (real.discountCents ?? 0);
-    const deductions = (real.platformFeeCents ?? 0) + (real.shippingTotalCents ?? 0) + (real.otherCostsCents ?? 0);
-    const net = gross - deductions;
-    const prodCost = real.itemsCostCents ?? 0;
-    const pack = real.packagingCents ?? 0;
-    const contribution = net - prodCost - pack - txVar.total;
-    const netResult = contribution - txFix.total + txOther.total;
+    const revenue = (real.revenueCents ?? 0) + (pend.revenueCents ?? 0);
+    const prodCost = (real.itemsCostCents ?? 0) + (pend.itemsCostCents ?? 0);
+    const pack = (real.packagingCents ?? 0) + (pend.packagingCents ?? 0);
+    const addCosts = (real.additionalCostsCents ?? 0) + (pend.additionalCostsCents ?? 0);
 
-    const grossP = (pend.productsAmountCents ?? 0) + (pend.shippingCustomerCents ?? 0) - (pend.discountCents ?? 0);
-    const deductionsP = (pend.platformFeeCents ?? 0) + (pend.shippingTotalCents ?? 0) + (pend.otherCostsCents ?? 0);
-    const netP = grossP - deductionsP;
-    const prodCostP = pend.itemsCostCents ?? 0;
-    const packP = pend.packagingCents ?? 0;
-    const contributionP = netP - prodCostP - packP;
-    const netResultP = contributionP;
+    const realContrib = (real.revenueCents ?? 0) - (real.itemsCostCents ?? 0) - (real.packagingCents ?? 0) - (real.additionalCostsCents ?? 0) - txVar.total;
+    const pendContrib = (pend.revenueCents ?? 0) - (pend.itemsCostCents ?? 0) - (pend.packagingCents ?? 0) - (pend.additionalCostsCents ?? 0);
+    const contribution = realContrib + pendContrib;
 
-    const totalGross = gross + grossP;
-    const pct = (v: number) => totalGross > 0 ? ((v / totalGross) * 100).toFixed(1) : "0.0";
+    const realNetResult = realContrib - txFix.total + txOther.total;
+    const pendNetResult = pendContrib;
+    const netResult = realNetResult + pendNetResult;
+
+    const pct = (v: number) => revenue > 0 ? ((v / revenue) * 100).toFixed(1) : "0.0";
 
     return {
       rows: [
-        { label: "Receita bruta dos pedidos", pct: pct(gross + grossP), realized: gross, pending: grossP, cls: "finance-dre-section" },
-        { label: "(-) Deduções variáveis (taxas, fretes, descontos)", pct: pct(deductions + deductionsP), realized: -deductions, pending: -deductionsP, cls: "finance-dre-negative" },
-        { label: "Receita líquida", pct: pct(net + netP), realized: net, pending: netP, cls: "finance-dre-total" },
-        { label: "(-) Custo dos produtos", pct: pct(prodCost + prodCostP), realized: -prodCost, pending: -prodCostP, cls: "finance-dre-negative" },
-        { label: "(-) Embalagens", pct: pct(pack + packP), realized: -pack, pending: -packP, cls: "finance-dre-negative" },
-        { label: "(-) Despesas variáveis", pct: pct(txVar.total), realized: -txVar.total, pending: 0, cls: "finance-dre-negative" },
-        { label: "MARGEM DE CONTRIBUIÇÃO", pct: pct(contribution + contributionP), realized: contribution, pending: contributionP, cls: "finance-dre-result", borderTop: true },
-        { label: "(-) Despesas fixas", pct: pct(txFix.total), realized: -txFix.total, pending: 0, cls: "finance-dre-negative" },
+        { label: "Receita de vendas", pct: pct(revenue), realized: real.revenueCents ?? 0, pending: pend.revenueCents ?? 0, cls: "finance-dre-section" },
+        { label: "(-) Custo dos produtos", pct: pct(-prodCost), realized: -(real.itemsCostCents ?? 0), pending: -(pend.itemsCostCents ?? 0), cls: "finance-dre-negative" },
+        { label: "(-) Embalagens", pct: pct(-pack), realized: -(real.packagingCents ?? 0), pending: -(pend.packagingCents ?? 0), cls: "finance-dre-negative" },
+        { label: "(-) Custos adicionais da venda", pct: pct(-addCosts), realized: -(real.additionalCostsCents ?? 0), pending: -(pend.additionalCostsCents ?? 0), cls: "finance-dre-negative" },
+        { label: "(-) Despesas variáveis", pct: pct(-txVar.total), realized: -txVar.total, pending: 0, cls: "finance-dre-negative" },
+        { label: "MARGEM DE CONTRIBUIÇÃO", pct: pct(contribution), realized: realContrib, pending: pendContrib, cls: "finance-dre-result", borderTop: true },
+        { label: "(-) Despesas fixas", pct: pct(-txFix.total), realized: -txFix.total, pending: 0, cls: "finance-dre-negative" },
         { label: "(+) Outras receitas", pct: pct(txOther.total), realized: txOther.total, pending: 0, cls: "finance-dre-positive" },
-        { label: "RESULTADO LÍQUIDO", pct: pct(netResult + netResultP), realized: netResult, pending: netResultP, cls: "finance-dre-result" },
+        { label: "RESULTADO LÍQUIDO", pct: pct(netResult), realized: realNetResult, pending: pendNetResult, cls: "finance-dre-result" },
       ],
     };
   }
@@ -240,6 +244,12 @@ function FinanceMockup() {
   const [txCostType, setTxCostType] = useState("variable");
   const [txOrderIds, setTxOrderIds] = useState<number[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
+  const [txAccount, setTxAccount] = useState("");
+  const [txCustomAccount, setTxCustomAccount] = useState("");
+  const [txExternalTxNumber, setTxExternalTxNumber] = useState("");
+  const [descSearch, setDescSearch] = useState("");
+  const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
+  const [descOpen, setDescOpen] = useState(false);
 
   /* ── Category modal state ── */
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
@@ -260,6 +270,14 @@ function FinanceMockup() {
   ).slice(0, 10);
 
   const catList = categories.data?.data ?? [];
+
+  const descAutocomplete = useQuery({
+    queryKey: ["tx-descriptions", descSearch],
+    queryFn: () => api<{ data: string[] }>(`/transactions/descriptions?q=${encodeURIComponent(descSearch)}`),
+    enabled: descSearch.length > 0,
+  });
+
+  const { sorted: sortedTxs, sortBy: sTxBy, sortDir: sTxDir, handleSort: sTxSort } = useSort(transactions.data?.data ?? [], "date");
 
   const hasAutoCalc = txType === "income" && txOrderIds.length > 0;
   const autoValue = useQuery({
@@ -321,12 +339,16 @@ function FinanceMockup() {
     setTxCostType(tx.costType || "variable");
     setTxOrderIds(tx.orders?.map((o: any) => o.id) ?? []);
     setOrderSearch("");
+    setTxAccount(tx.account || "");
+    setTxCustomAccount("");
+    setTxExternalTxNumber(tx.externalTransactionNumber || "");
     setModalOpen(true);
   }
 
   function resetForm() {
     setTxType("income"); setTxCategory("Vendas"); setTxDate(today);
     setTxDescription(""); setTxAmount(""); setTxCostType("variable"); setTxOrderIds([]); setOrderSearch("");
+    setTxAccount(""); setTxCustomAccount(""); setTxExternalTxNumber("");
     setEditingTx(null);
   }
 
@@ -335,11 +357,14 @@ function FinanceMockup() {
     const amountCents = hasAutoCalc
       ? autoAmountCents
       : Math.round(Number((txAmount ?? "0").replace(/\./g, "").replace(",", ".")) * 100);
+    const account = txAccount === "Outra" ? txCustomAccount : txAccount;
     const body = {
       date: txDate, type: txType, category: txCategory, description: txDescription,
       amountCents,
       costType: txType === "expense" ? txCostType : null,
       orderIds: txOrderIds,
+      account: account || null,
+      externalTransactionNumber: txExternalTxNumber || null,
     };
     saveMutation.mutate({ id: editingTx?.id, body });
   }
@@ -381,6 +406,7 @@ function FinanceMockup() {
           <option value="fixed">Custos fixos</option>
           <option value="variable">Custos variáveis</option>
         </select>
+        <input value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} placeholder="Buscar descrição, pedido, cliente..." style={{ minWidth: 200 }} />
         <button type="button" onClick={() => setCategoryModalOpen(true)} style={{ background: "none", border: "1px solid #ddd", borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 12 }}>
           Categorias
         </button>
@@ -392,17 +418,19 @@ function FinanceMockup() {
           <table>
             <thead>
               <tr>
-                <th>Data</th>
-                <th>Descrição</th>
-                <th>Categoria</th>
-                <th>Classificação</th>
+                <th className={`sortable ${sTxBy === "date" ? sTxDir : ""}`} onClick={() => sTxSort("date")}>Data</th>
+                <th className={`sortable ${sTxBy === "description" ? sTxDir : ""}`} onClick={() => sTxSort("description")}>Descrição</th>
+                <th className={`sortable ${sTxBy === "category" ? sTxDir : ""}`} onClick={() => sTxSort("category")}>Categoria</th>
+                <th className={`sortable ${sTxBy === "account" ? sTxDir : ""}`} onClick={() => sTxSort("account")}>Conta</th>
+                <th className={`sortable ${sTxBy === "externalTransactionNumber" ? sTxDir : ""}`} onClick={() => sTxSort("externalTransactionNumber")}>Nº externo</th>
+                <th className={`sortable ${sTxBy === "costType" ? sTxDir : ""}`} onClick={() => sTxSort("costType")}>Classificação</th>
                 <th>Pedidos vinculados</th>
-                <th style={{ textAlign: "right" }}>Valor</th>
+                <th className={`sortable ${sTxBy === "amountCents" ? sTxDir : ""}`} onClick={() => sTxSort("amountCents")} style={{ textAlign: "right" }}>Valor</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {(transactions.data?.data ?? []).map((t: any) => (
+              {sortedTxs.map((t: any) => (
                 <tr key={t.id}>
                   <td>{fmtDate(t.date)}</td>
                   <td>
@@ -410,6 +438,8 @@ function FinanceMockup() {
                     <span style={{ color: "#888", fontSize: 12 }}>{t.type === "income" ? "Entrada" : "Saída"}</span>
                   </td>
                   <td><span className={`tag ${t.type === "income" ? "tag-green" : "tag-red"}`}>{t.category}</span></td>
+                  <td style={{ fontSize: 13 }}>{t.account || <span style={{ color: "#999" }}>-</span>}</td>
+                  <td style={{ fontSize: 13 }}>{t.externalTransactionNumber || <span style={{ color: "#999" }}>-</span>}</td>
                   <td>
                     {t.type === "expense" ? (
                       <span className={`tag ${t.costType === "fixed" ? "tag-blue" : "tag-gold"}`}>
@@ -421,8 +451,8 @@ function FinanceMockup() {
                     {t.orders?.length ? (
                       <div className="finance-order-links">
                         {t.orders.map((o: any) => (
-                          <button key={o.id} type="button" className="link-btn">
-                            #{o.id}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""}
+                          <button key={o.id} type="button" className="link-btn" onClick={() => setDetailOrderId(o.id)}>
+                            #{o.id} · {o.customer || "—"}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""}
                           </button>
                         ))}
                       </div>
@@ -443,6 +473,29 @@ function FinanceMockup() {
           </table>
         </div>
       </Panel>
+
+      {dreWarnings.totalDiscrepancyOrders > 0 && (
+        <Panel title="⚠️ Divergências detectadas">
+          <div className="alert warning" style={{ margin: 0 }}>
+            <span>
+              {dreWarnings.totalDiscrepancyOrders} pedido(s) com divergência entre valor recebido × esperado.
+              {dreWarnings.discrepantOrders.slice(0, 5).map((w: any) => (
+                <div key={w.orderId} style={{ fontSize: "0.85em", marginTop: 4 }}>
+                  Pedido <button type="button" className="link-btn" onClick={() => setFilterSearch(String(w.orderId))} style={{ fontSize: "0.85em" }}>#{w.orderId}</button>
+                  {w.externalId ? <span> (<button type="button" className="link-btn" onClick={() => setFilterSearch(w.externalId)} style={{ fontSize: "0.85em" }}>{w.externalId.slice(-8)}</button>)</span> : ""}:
+                  recebido <strong>{money(w.receivedCents)}</strong> × esperado <strong>{money(w.expectedCents)}</strong>
+                  {" "}({w.diffCents > 0 ? "+" : ""}{money(Math.abs(w.diffCents))})
+                </div>
+              ))}
+              {dreWarnings.discrepantOrders.length > 5 && (
+                <div style={{ fontSize: "0.85em", marginTop: 4, color: "#92400e" }}>
+                  +{dreWarnings.discrepantOrders.length - 5} outro(s)
+                </div>
+              )}
+            </span>
+          </div>
+        </Panel>
+      )}
 
       <Panel title="DRE do período">
         <div className="finance-dre">
@@ -491,7 +544,31 @@ function FinanceMockup() {
               </div>
               <div className="order-field" style={{ gridColumn: "span 2" }}>
                 <label>Descrição</label>
-                <input value={txDescription} onChange={(e) => setTxDescription(e.target.value)} placeholder="Descrição da movimentação" />
+                <input value={txDescription}
+                       onChange={(e) => { setTxDescription(e.target.value); setDescSearch(e.target.value); }}
+                       onFocus={() => setDescOpen(true)}
+                       onBlur={() => setTimeout(() => setDescOpen(false), 200)}
+                       placeholder="Descrição da movimentação"
+                       list="tx-descriptions" />
+                <datalist id="tx-descriptions">
+                  {(descAutocomplete.data?.data ?? []).map((d) => (
+                    <option key={d} value={d} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="order-field">
+                <label>Conta</label>
+                <select value={txAccount} onChange={(e) => setTxAccount(e.target.value)}>
+                  <option value="">Selecionar conta</option>
+                  {ACCOUNT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                {txAccount === "Outra" && (
+                  <input value={txCustomAccount} onChange={(e) => setTxCustomAccount(e.target.value)} placeholder="Digite a conta" style={{ marginTop: 4 }} />
+                )}
+              </div>
+              <div className="order-field">
+                <label>Nº transação externo</label>
+                <input value={txExternalTxNumber} onChange={(e) => setTxExternalTxNumber(e.target.value)} placeholder="ID externo" />
               </div>
               <div className="order-field">
                 <label>Valor (R$)</label>
@@ -575,6 +652,15 @@ function FinanceMockup() {
           </div>
         </div>
       </ModalShell>
+
+      {detailOrderId && (
+        <OrderDetailModal
+          orderId={detailOrderId}
+          open={detailOrderId !== null}
+          onClose={() => setDetailOrderId(null)}
+          onEdit={(id) => { setDetailOrderId(null); onEditOrder?.(id); }}
+        />
+      )}
     </>
   );
 }
@@ -949,7 +1035,7 @@ function validateDocument(value: string) {
   return "CPF deve ter 11 dígitos ou CNPJ 14 dígitos";
 }
 
-function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) {
+function Customers({ onEditOrder }: { onEditOrder?: (orderId: number) => void }) {
   const queryClient = useQueryClient();
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -989,6 +1075,7 @@ function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [viewing, setViewing] = useState<Customer | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [message, setMessage] = useState("");
 
@@ -1523,7 +1610,15 @@ function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) 
           open
           onClose={closeDetailModal}
           onEdit={handleViewEdit}
-          onViewOrder={onViewOrder}
+          onViewOrder={(id: number) => setDetailOrderId(id)}
+        />
+      )}
+      {detailOrderId && (
+        <OrderDetailModal
+          orderId={detailOrderId}
+          open={detailOrderId !== null}
+          onClose={() => setDetailOrderId(null)}
+          onEdit={(id) => { setDetailOrderId(null); onEditOrder?.(id); }}
         />
       )}
       <ConfirmDeleteModal
@@ -1833,7 +1928,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
         </select>
         <input
           type="search"
-          placeholder="Buscar pedidos..."
+          placeholder="Buscar por #ID, pedido externo, cliente, SKU, notas..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           style={{ flex: 1, maxWidth: 240 }}
