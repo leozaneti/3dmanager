@@ -14,7 +14,7 @@ import type { ParsedOrder } from "./xlsxParser.js";
 import { previewMpCsv, confirmMpImport } from "./importerMp.js";
 import { hashPassword, verifyPassword, createSession, deleteSession, validateSession, clearExpiredSessions } from "./auth.js";
 import { authMiddleware } from "./middleware/auth.js";
-import { normalize, mapStatus } from "./importShared.js";
+import { mapStatus } from "./importShared.js";
 
 const app = Fastify({ logger: true });
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";

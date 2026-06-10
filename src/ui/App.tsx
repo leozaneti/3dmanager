@@ -162,15 +162,6 @@ function KpiHero({ label, value, margin, compare, compareDir, onMouseEnter, onMo
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="panel">
@@ -179,35 +170,6 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
     </section>
   );
 }
-
-function FormCard({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="form-card">
-      <div className="form-card-header">
-        <div>
-          <h3>{title}</h3>
-          {description ? <p>{description}</p> : null}
-        </div>
-      </div>
-      <div className="form-card-body">{children}</div>
-    </section>
-  );
-}
-
-function Field({ label, optional, hint, children }: { label: string; optional?: boolean; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <div className="field-label">
-        {label}
-        {optional ? <span className="field-optional">Opcional</span> : null}
-      </div>
-      {children}
-      {hint ? <div className="field-hint">{hint}</div> : null}
-    </div>
-  );
-}
-
-// Notification component imported from ./Notification
 
 function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {
   if (!open) return null;
@@ -222,49 +184,6 @@ function Modal({ title, open, onClose, children }: { title: string; open: boolea
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
-  );
-}
-
-function SimpleTable({ rows, columns }: { rows: any[]; columns: string[] }) {
-  const labels: Record<string, string> = {
-    name: "Nome",
-    quantity: "Qtd.",
-    revenueCents: "Receita",
-    profitCents: "Lucro",
-    orderCount: "Pedidos",
-    grossRevenueCents: "Receita",
-    marginPercent: "Margem",
-    totalItems: "Itens",
-    avgTicketCents: "Ticket",
-    totalCostCents: "Custos",
-    shippingSubsidyCents: "Frete sub."
-  };
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column}>{labels[column] ?? column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={columns.length}>Sem dados ainda.</td>
-            </tr>
-          )}
-          {rows.map((row, index) => (
-            <tr key={index}>
-              {columns.map((column) => (
-                <td key={column}>{column.endsWith("Cents") ? money(row[column]) : row[column]}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -1295,7 +1214,6 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
 
   function setDatePreset(preset: string) {
     const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
     const today = now.toISOString().slice(0, 10);
     switch (preset) {
       case "today": setFilterFrom(today); setFilterTo(today); break;
@@ -1313,8 +1231,6 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
       case "all": { setFilterFrom(""); setFilterTo(""); break; }
     }
   }
-
-  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
     <>
