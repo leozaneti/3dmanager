@@ -46,10 +46,14 @@ export function OrderFinancialSidebar({
   const marginPercent = (productsTotal + shippingCustomerCents) > 0 ? (profit / (productsTotal + shippingCustomerCents)) * 100 : 0;
 
   const stage1Value = productsTotal - otherCostsCents;
-  const showCompBar = stage1Value > 0 && profit >= 0;
+  const showCompBar = stage1Value > 0;
   const pPct = showCompBar ? (profit / stage1Value) * 100 : 0;
   const fPct = showCompBar ? (totalFeesDeduction / stage1Value) * 100 : 0;
   const cPct = showCompBar ? (productionCost / stage1Value) * 100 : 0;
+  const totalPct = Math.abs(pPct) + Math.abs(fPct) + Math.abs(cPct);
+  const pBar = totalPct > 0 ? (Math.max(pPct, 0) / totalPct) * 100 : 0;
+  const fBar = totalPct > 0 ? (fPct / totalPct) * 100 : 0;
+  const cBar = totalPct > 0 ? (cPct / totalPct) * 100 : 0;
 
   return (
     <div className="modal-order-sidebar">
@@ -177,12 +181,12 @@ export function OrderFinancialSidebar({
       {showCompBar && (
         <div className="comp-bar-wrap">
           <div className="stacked-bar">
-            <div className="stacked-seg seg-green" style={{ width: pPct + "%" }}>{money(profit)}</div>
-            <div className="stacked-seg seg-amber" style={{ width: fPct + "%" }}>{money(totalFeesDeduction)}</div>
-            <div className="stacked-seg seg-red" style={{ width: cPct + "%" }}>{money(productionCost)}</div>
+            <div className={`stacked-seg ${profit >= 0 ? "seg-green" : "seg-red"}`} style={{ width: pBar + "%" }}>{money(profit)}</div>
+            <div className="stacked-seg seg-amber" style={{ width: fBar + "%" }}>{money(totalFeesDeduction)}</div>
+            <div className="stacked-seg seg-red" style={{ width: cBar + "%" }}>{money(productionCost)}</div>
           </div>
           <div className="comp-legend">
-            <div className="item"><span className="dot" style={{ background: "#10b981" }}></span> Lucro <span className="pct">{pPct.toFixed(1)}%</span></div>
+            <div className="item"><span className="dot" style={{ background: profit >= 0 ? "#10b981" : "#dc2626" }}></span> Lucro <span className="pct">{pPct.toFixed(1)}%</span></div>
             <div className="item"><span className="dot" style={{ background: "#f59e0b" }}></span> Taxas+Frete <span className="pct">{fPct.toFixed(1)}%</span></div>
             <div className="item"><span className="dot" style={{ background: "#ef4444" }}></span> Custo Prod. <span className="pct">{cPct.toFixed(1)}%</span></div>
           </div>

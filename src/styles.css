@@ -369,21 +369,6 @@ h2 {
   overflow: hidden;
 }
 
-.chart-svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.chart-grid line {
-  stroke: #f0f0f0;
-}
-
-.chart-grid text {
-  fill: #8a8a8a;
-  font-size: 10px;
-}
-
 .chart-empty {
   padding: 32px;
   color: #aaa;
@@ -1844,6 +1829,31 @@ select.status-badge option { color: #333; background: #fff; }
   font-size: 14px;
   margin: 0 0 18px 0;
 }
+.import-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e5e7eb;
+}
+.import-tab {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: color .15s, border-color .15s;
+}
+.import-tab:hover {
+  color: #111;
+}
+.import-tab.active {
+  color: #111;
+  border-bottom-color: #6366f1;
+}
 .import-card {
   margin-bottom: 16px;
 }
@@ -3142,7 +3152,6 @@ td.col-checkbox input[type="checkbox"] {
 
 /* Dashboard channels */
 .channel-body { display: flex; align-items: center; gap: 16px; }
-.channel-donut { flex-shrink: 0; }
 .channel-side { flex: 1; min-width: 0; }
 .channel-bar-list { display: flex; flex-direction: column; gap: 8px; }
 .ch-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
