@@ -4,8 +4,10 @@ import { money } from "../api";
 export function DashboardCompBar({ totals }: { totals: DashboardTotals }) {
   const grossRevenue = totals.grossRevenueCents;
   const saleResult = totals.saleResultCents;
+  const netRevenue = totals.netRevenueCents;
+  const itemsCost = totals.itemsCostCents;
   const profit = totals.profitCents;
-  const productionCost = totals.totalCostCents;
+  const productionCost = itemsCost + (saleResult - netRevenue);
   const feesAndFreightCost = grossRevenue - saleResult;
 
   const denominator = grossRevenue || 1;

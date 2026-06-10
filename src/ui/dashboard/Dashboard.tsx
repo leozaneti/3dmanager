@@ -15,7 +15,6 @@ function Header({ title, subtitle }: { title: string; subtitle: string }) {
         <h1>{title}</h1>
         <p className="page-header-subtitle">{subtitle}</p>
       </div>
-      <span className="badge">● Online</span>
     </div>
   );
 }
@@ -30,7 +29,9 @@ export function Dashboard({ meta }: { meta: Meta }) {
   const [endDate, setEndDate] = useState(todayStr);
   const [allTime, setAllTime] = useState(false);
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("day");
-  const [chartMetric, setChartMetric] = useState<"revenue" | "profit" | "costs" | "orders">("revenue");
+  const [activeMetrics, setActiveMetrics] = useState<Record<string, boolean>>({
+    revenue: true, profit: true, costs: false, orders: false
+  });
   const [channelView, setChannelView] = useState<"revenue" | "orders" | "margin">("revenue");
 
   function setPreset(preset: string) {
@@ -163,9 +164,9 @@ export function Dashboard({ meta }: { meta: Meta }) {
           <DashboardChart
             timeSeries={data.timeSeries}
             groupBy={groupBy}
-            metric={chartMetric}
+            activeMetrics={activeMetrics}
+            onMetricsChange={setActiveMetrics}
             onGroupByChange={setGroupBy}
-            onMetricChange={setChartMetric}
           />
 
           <div className="columns">

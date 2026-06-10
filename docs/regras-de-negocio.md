@@ -1,7 +1,7 @@
 # Regras de Negócio — 3D Manager
 
 > Sistema de gestão para e-commerce de impressão 3D.
-> Versão: 0.1.0 | Última atualização: Junho 2026
+> Versão: 0.2.0 | Última atualização: 09/06/2026
 
 ---
 
@@ -11,7 +11,7 @@
 2. [Produtos](#2-produtos)
 3. [Clientes](#3-clientes)
 4. [Financeiro](#4-financeiro)
-5. [Importação (Mercado Livre)](#5-importação-mercado-livre)
+5. [Importação (Mercado Livre / Extrato MP)](#5-importação-mercado-livre--extrato-mp)
 6. [DRE](#6-dre)
 7. [Dashboard & KPIs](#7-dashboard--kpis)
 8. [Backup](#8-backup)
@@ -130,7 +130,7 @@ resultadoVenda     = receitaBruta - taxaPlataforma - freteTotal - outrosCustos +
 
 ---
 
-## 5. Importação (Mercado Livre)
+## 5. Importação (Mercado Livre / Extrato MP)
 
 ### RN16 – Fluxo em Duas Fases
 1. **Preview**: upload do XLSX → análise → exibição de duplicatas, SKUs faltantes e alterações detectadas
@@ -157,16 +157,73 @@ cupom = gap < 0 ? |gap| : 0
 ```
 O cupom é armazenado em `other_costs_cents`.
 
+### RN36 – Importação de Extrato MP (CSV)
+- Fluxo em duas fases: **Preview** (upload CSV → análise) e **Confirmar** (execução).
+- Arquivo: CSV separado por `;` com colunas padronizadas (SOURCE_ID, REAL_AMOUNT, SETTLEMENT_DATE, PACK_ID, etc.).
+- Cache de preview expira em 10 minutos.
+
+### RN37 – Filtro de Transações MP
+| Transaction Type | REAL_AMOUNT | Ação |
+|---|---|---|
+| SETTLEMENT | > 0 | Income "Vendas" |
+| SETTLEMENT_SHIPPING | > 0 | Income "Vendas" |
+| DISPUTE / DISPUTE_SHIPPING | < 0 | Expense "Estorno/Reembolso" |
+| Qualquer | > 0 e SOURCE_ID em DISPUTE | Ignorado (reversão de chargeback) |
+| Sem PACK_ID e sem ORDER_ID | qualquer | Ignorado (asset management) |
+
+### RN38 – Deduplicação (MP)
+- Chave única: `(source_id, amount_cents, type)` na tabela `transactions`.
+- Se `source_type = 'mp_settlement'` e a combinação já existir, a linha é ignorada.
+- Permite re-importar o mesmo CSV sem criar duplicatas.
+
+### RN39 – Link PACK_ID/ORDER_ID
+1. **PACK_ID** → `orders.external_order_id` (match exato)
+2. Fallback: **ORDER_ID** → `orders.external_order_id`
+3. Sem match → transação criada como "Venda externa" (sem `transaction_orders`), entra em `otherIncome` no DRE
+4. O vínculo existe apenas para marcar o pedido como "realizado" — os valores do `order_financials` não são alterados
+
 ---
 
 ## 6. DRE (Demonstração de Resultados)
 
-### RN20 – Separação Realizado × A Realizar
-- **Realizado**: pedidos Entregues que possuem ao menos uma transação de receita (`type = 'income'`) vinculada via `transaction_orders`.
-- **A Realizar**: pedidos Entregues **sem** nenhuma transação de receita vinculada.
-- Cálculo: `pending = total_delivered - realized`.
+### RN20 – Receita via Transações Financeiras
+- **Realizado**: pedidos Entregues **com** ao menos uma transação de receita vinculada → receita = soma dos `amount_cents` dessas transações (o valor real que entrou na conta).
+- **A Realizar (estimado)**: pedidos Entregues **sem** transação de receita → receita estimada via `order_financials`:
+  ```
+  receitaEstimada = amount_received_cents
+  ```
+  Corresponde ao total líquido reportado pelo marketplace para a venda.
 
-### RN21 – Classificação de Transações
+### RN21 – Estrutura do DRE
+
+```
+(+) Receita de vendas (realizada + estimada)
+(-) Custo dos produtos          ← order_items
+(-) Embalagens                  ← order_financials.packaging_cents
+(-) Custos adicionais da venda  ← order_financials.additional_costs + other_costs
+(-) Despesas variáveis          ← transactions expense cost_type=variable
+= MARGEM DE CONTRIBUIÇÃO
+(-) Despesas fixas              ← transactions expense cost_type=fixed
+(+) Outras receitas             ← transactions income (category≠Vendas OU não linkada)
+= RESULTADO LÍQUIDO
+```
+
+- **Não** há mais linha de "Deduções variáveis (taxas, fretes, descontos)" — esses valores já são descontados na fonte pelo Mercado Pago, e o SETTLEMENT já reflete o líquido recebido.
+- `additional_costs_cents` e `other_costs_cents` entram como custo direto da venda.
+
+### RN22 – Alerta de Divergência
+- Para cada pedido com transação de receita, compara:
+  ```
+  expected = amount_received_cents (order_financials)
+  received = soma dos amount_cents das transactions income do pedido
+  ```
+- Se `|received - expected| > max(R$1,00, 5% de expected)`, o DRE exibe um banner de alerta.
+- Divergências podem indicar:
+  - Settlement parcial (mais parcelas a receber)
+  - Estorno/reembolso não registrado como transação
+  - Erro no preenchimento do `order_financials`
+
+### RN23 – Classificação de Transações
 - **income** (receita): Vendas, Estorno/Reembolso, Outras entradas
 - **expense** (despesa): Impostos, Insumos, Energia, Marketing, Outros custos
 - Despesas subclassificadas em `fixed` (fixas) e `variable` (variáveis)
@@ -271,6 +328,7 @@ O cupom é armazenado em `other_costs_cents`.
 | `server/calculations.ts` | Fórmulas financeiras de pedido |
 | `server/importShared.ts` | Transições de status, mapeamento ML |
 | `server/importer.ts` | Lógica de importação, merge de clientes |
+| `server/importerMp.ts` | Parsing de CSV do Mercado Pago, preview, confirm |
 | `server/xlsxParser.ts` | Parsing de XLSX do Mercado Livre |
 | `server/db.ts` | Schema do banco, migração, seed |
 | `server/index.ts` | Rotas da API, validações (zod) |

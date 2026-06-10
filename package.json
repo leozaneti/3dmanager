@@ -8,10 +8,12 @@
     "dev:auth": "concurrently \"npm:dev:auth:api\" \"npm:dev:web\"",
     "dev:api": "tsc -p tsconfig.server.json && env DB_ENV=dev AUTH_ENABLED=false node dist-server/index.js",
     "dev:auth:api": "tsc -p tsconfig.server.json && env DB_ENV=dev AUTH_ENABLED=true node dist-server/index.js",
-    "dev:web": "vite --host 0.0.0.0",
+    "dev:web": "node server/scripts/wait-for-port.mjs && vite --host 0.0.0.0",
     "build": "tsc && tsc -p tsconfig.server.json && vite build",
     "start": "env DB_ENV=prod node dist-server/index.js",
-    "backup": "env DB_ENV=prod tsx server/scripts/backup.ts"
+    "backup": "env DB_ENV=prod tsx server/scripts/backup.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -26,18 +28,23 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "recharts": "^3.8.1",
     "sql.js": "^1.14.1",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "concurrently": "^9.1.0",
+    "jsdom": "^25.0.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   }
 }

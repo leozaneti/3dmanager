@@ -1,148 +1,200 @@
 import { DashboardTimePoint } from "../dashboard-types";
 import { money } from "../api";
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend
+} from "recharts";
 
-type Metric = "revenue" | "profit" | "costs" | "orders";
 type GroupBy = "day" | "week" | "month";
 
-const metricColors: Record<Metric, string> = {
-  revenue: "#111",
-  profit: "#059669",
-  costs: "#dc2626",
-  orders: "#f59e0b",
+const METRICS = ["revenue", "profit", "costs", "orders"] as const;
+
+const metricConfig: Record<string, { label: string; color: string }> = {
+  revenue: { label: "Receita", color: "#111" },
+  profit: { label: "Lucro", color: "#059669" },
+  costs: { label: "Custos", color: "#dc2626" },
+  orders: { label: "Pedidos", color: "#f59e0b" },
 };
 
-const metricLabels: Record<Metric, string> = {
-  revenue: "Receita",
-  profit: "Lucro",
-  costs: "Custos",
-  orders: "Pedidos",
+function formatPeriod(period: string, groupBy: GroupBy) {
+  if (groupBy === "month") {
+    const d = new Date(period + "-01T12:00:00");
+    return d.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" });
+  }
+  if (groupBy === "week") {
+    return period.length > 7 ? period.slice(5) : period;
+  }
+  const d = new Date(period + "T12:00:00");
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+}
+
+function fmtAxis(val: number) {
+  const reais = Math.abs(val) / 100;
+  if (reais >= 1_000_000) return `${(reais / 1_000_000).toFixed(1)}M`;
+  if (reais >= 1_000) return `${(reais / 1_000).toFixed(0)}k`;
+  return `${reais.toFixed(0)}`;
+}
+
+function fmtTooltip(val: number, name: string) {
+  if (name === "orders") return [Math.round(val), "Pedidos"];
+  return [money(val), metricConfig[name]?.label ?? name];
+}
+
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 8, padding: "10px 14px", fontSize: 13, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+      <div style={{ fontWeight: 600, marginBottom: 6, color: "#333" }}>{label}</div>
+      {payload.map((entry: any) => (
+        <div key={entry.name} style={{ display: "flex", justifyContent: "space-between", gap: 16, color: "#555" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: entry.color, display: "inline-block" }} />
+            {metricConfig[entry.name]?.label ?? entry.name}
+          </span>
+          <span style={{ fontWeight: 600, color: "#111" }}>{fmtTooltip(entry.value, entry.name)[0]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function renderLegend(props: any) {
+  const { payload } = props;
+  if (!payload) return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "center", gap: 16, paddingTop: 8, fontSize: 12 }}>
+      {payload.map((entry: any) => (
+        <span key={entry.dataKey} style={{ display: "flex", alignItems: "center", gap: 4, color: "#555" }}>
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: entry.color, display: "inline-block" }} />
+          {entry.value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+type Props = {
+  timeSeries: DashboardTimePoint[];
+  groupBy: GroupBy;
+  activeMetrics: Record<string, boolean>;
+  onMetricsChange: (m: Record<string, boolean>) => void;
+  onGroupByChange: (g: GroupBy) => void;
 };
 
 export function DashboardChart({
   timeSeries,
   groupBy,
-  metric,
+  activeMetrics,
+  onMetricsChange,
   onGroupByChange,
-  onMetricChange,
-}: {
-  timeSeries: DashboardTimePoint[];
-  groupBy: GroupBy;
-  metric: Metric;
-  onGroupByChange: (g: GroupBy) => void;
-  onMetricChange: (m: Metric) => void;
-}) {
+}: Props) {
   if (!timeSeries.length) {
     return (
       <div className="panel">
         <div className="chart-header">
           <h2>Evolução por período</h2>
-          <Controls groupBy={groupBy} metric={metric} onGroupByChange={onGroupByChange} onMetricChange={onMetricChange} />
+          <Controls groupBy={groupBy} activeMetrics={activeMetrics} onMetricsChange={onMetricsChange} onGroupByChange={onGroupByChange} />
         </div>
         <div className="chart-empty">Sem dados para o período selecionado.</div>
       </div>
     );
   }
 
-  const width = 800;
-  const height = 220;
-  const pad = { top: 16, right: 16, bottom: 28, left: 48 };
-  const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
-
-  const primaryValues = timeSeries.map(d => {
-    if (metric === "profit") return d.profitCents;
-    if (metric === "costs") return d.costsCents;
-    if (metric === "orders") return d.orderCount * 10000;
-    return d.revenueCents;
-  });
-  const allValues = timeSeries.flatMap(d => [d.revenueCents, d.profitCents, d.costsCents, d.orderCount * 10000]);
-  const maxVal = Math.max(...allValues, 1);
-
-  const x = (i: number) => pad.left + (timeSeries.length > 1 ? (i / (timeSeries.length - 1)) * innerW : innerW / 2);
-  const y = (val: number) => pad.top + innerH - (val / maxVal) * innerH;
-
-  const fmt = (val: number) => {
-    const abs = Math.abs(val);
-    if (abs >= 100000000) return `R$ ${(abs / 100000000).toFixed(1)}M`;
-    if (abs >= 100000) return `R$ ${(abs / 1000).toFixed(0)}k`;
-    if (abs >= 1000) return `R$ ${(abs / 100).toFixed(1)}k`;
-    return String(abs);
-  };
-
-  const primaryPath = timeSeries.map((d, i) => {
-    const val = primaryValues[i];
-    return `${i === 0 ? "M" : "L"}${x(i)} ${y(val)}`;
-  }).join(" ");
-
-  const areaPath = `M${x(0)} ${y(0)} L${primaryPath.slice(1)} L${x(timeSeries.length - 1)} ${y(0)} Z`;
-
-  const metricColor = metricColors[metric];
-  const activeLabel = metricLabels[metric];
-
-  const ticks = timeSeries.length > 10
-    ? timeSeries.filter((_, i) => i % Math.ceil(timeSeries.length / 8) === 0 || i === timeSeries.length - 1)
-    : timeSeries;
+  const hasAnyActive = Object.values(activeMetrics).some(Boolean);
+  const hasMonetary = activeMetrics.revenue || activeMetrics.profit || activeMetrics.costs;
+  const showRightAxis = activeMetrics.orders;
 
   return (
     <div className="panel">
       <div className="chart-header">
         <h2>Evolução por período</h2>
-        <Controls groupBy={groupBy} metric={metric} onGroupByChange={onGroupByChange} onMetricChange={onMetricChange} />
+        <Controls groupBy={groupBy} activeMetrics={activeMetrics} onMetricsChange={onMetricsChange} onGroupByChange={onGroupByChange} />
       </div>
-      <div className="chart-container">
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="chart-svg">
-          <defs>
-            <linearGradient id="primaryGrad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={metricColor} stopOpacity="0.15" />
-              <stop offset="100%" stopColor={metricColor} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <g className="chart-grid">
-            {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-              const val = maxVal * t;
-              return (
-                <g key={t}>
-                  <line x1={pad.left} x2={width - pad.right} y1={y(val)} y2={y(val)} stroke="#e8e8e8" strokeDasharray="3 3" />
-                  <text x={pad.left - 6} y={y(val) + 3} textAnchor="end" fontSize="10" fill="#888">
-                    {fmt(val)}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-          <path d={areaPath} fill="url(#primaryGrad)" />
-          <path d={primaryPath} fill="none" stroke={metricColor} strokeWidth="2" strokeLinejoin="round" />
-          {ticks.map((d, i) => {
-            const idx = timeSeries.indexOf(d);
-            const label = d.period.length > 7 ? d.period.slice(5) : d.period;
-            return (
-              <text key={d.period} x={x(idx)} y={height - 6} textAnchor="middle" fontSize="10" fill="#888">
-                {label}
-              </text>
-            );
-          })}
-          <g fontSize="9">
-            <line x1={width - 84} y1={12} x2={width - 68} y2={12} stroke={metricColor} strokeWidth="2" />
-            <text x={width - 64} y={15} fill="#555">{activeLabel}</text>
-          </g>
-        </svg>
-      </div>
+      {!hasAnyActive ? (
+        <div className="chart-empty">Selecione ao menos uma métrica.</div>
+      ) : (
+        <div className="chart-container">
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={timeSeries} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="period"
+                tickFormatter={(p) => formatPeriod(p, groupBy)}
+                tick={{ fontSize: 10, fill: "#888" }}
+                tickLine={false}
+                axisLine={{ stroke: "#e8e8e8" }}
+                interval="preserveStartEnd"
+              />
+              {hasMonetary && (
+                <YAxis
+                  yAxisId="left"
+                  tickFormatter={fmtAxis}
+                  tick={{ fontSize: 10, fill: "#888" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={48}
+                />
+              )}
+              {showRightAxis && (
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tickFormatter={(v: number) => Math.round(v).toString()}
+                  tick={{ fontSize: 10, fill: "#888" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={32}
+                />
+              )}
+              <Tooltip content={<CustomTooltip />} />
+              <Legend content={renderLegend} />
+              {activeMetrics.revenue && (
+                <Line yAxisId="left" type="monotone" dataKey="revenueCents" name="revenue"
+                  stroke={metricConfig.revenue.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              )}
+              {activeMetrics.profit && (
+                <Line yAxisId="left" type="monotone" dataKey="profitCents" name="profit"
+                  stroke={metricConfig.profit.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              )}
+              {activeMetrics.costs && (
+                <Line yAxisId="left" type="monotone" dataKey="costsCents" name="costs"
+                  stroke={metricConfig.costs.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              )}
+              {activeMetrics.orders && (
+                <Line yAxisId="right" type="monotone" dataKey="orderCount" name="orders"
+                  stroke={metricConfig.orders.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
 
-function Controls({ groupBy, metric, onGroupByChange, onMetricChange }: { groupBy: GroupBy; metric: Metric; onGroupByChange: (g: GroupBy) => void; onMetricChange: (m: Metric) => void }) {
+function Controls({
+  groupBy, activeMetrics, onMetricsChange, onGroupByChange
+}: {
+  groupBy: GroupBy;
+  activeMetrics: Record<string, boolean>;
+  onMetricsChange: (m: Record<string, boolean>) => void;
+  onGroupByChange: (g: GroupBy) => void;
+}) {
   const groupOptions: { key: GroupBy; label: string }[] = [
     { key: "day", label: "Dia" },
     { key: "week", label: "Semana" },
     { key: "month", label: "Mês" },
   ];
-  const metricOptions: { key: Metric; label: string }[] = [
-    { key: "revenue", label: "Receita" },
-    { key: "profit", label: "Lucro" },
-    { key: "costs", label: "Custos" },
-    { key: "orders", label: "Pedidos" },
-  ];
+
+  function toggle(key: string) {
+    onMetricsChange({ ...activeMetrics, [key]: !activeMetrics[key] });
+  }
+
+  function setAll(value: boolean) {
+    const next: Record<string, boolean> = {};
+    for (const k of METRICS) next[k] = value;
+    onMetricsChange(next);
+  }
 
   return (
     <div className="chart-controls-row">
@@ -153,12 +205,33 @@ function Controls({ groupBy, metric, onGroupByChange, onMetricChange }: { groupB
           </button>
         ))}
       </div>
-      <div className="chart-controls">
-        {metricOptions.map(o => (
-          <button key={o.key} type="button" className={metric === o.key ? "active" : ""} onClick={() => onMetricChange(o.key)}>
-            {o.label}
-          </button>
-        ))}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        {METRICS.map(key => {
+          const cfg = metricConfig[key];
+          return (
+            <label key={key} style={{
+              display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer",
+              padding: "3px 10px", borderRadius: 6,
+              background: activeMetrics[key] ? cfg.color + "18" : "#f2f2f2",
+              color: activeMetrics[key] ? cfg.color : "#555",
+              fontWeight: activeMetrics[key] ? 600 : 400,
+              border: `1px solid ${activeMetrics[key] ? cfg.color + "40" : "transparent"}`,
+              transition: "all 0.15s",
+            }}>
+              <input type="checkbox" checked={!!activeMetrics[key]} onChange={() => toggle(key)}
+                style={{ accentColor: cfg.color, margin: 0 }} />
+              {cfg.label}
+            </label>
+          );
+        })}
+        <button type="button" onClick={() => setAll(true)}
+          style={{ fontSize: 11, padding: "3px 8px", border: "1px solid #d4d4d4", borderRadius: 6, background: "#fafafa", cursor: "pointer", color: "#555" }}>
+          Todas
+        </button>
+        <button type="button" onClick={() => setAll(false)}
+          style={{ fontSize: 11, padding: "3px 8px", border: "1px solid #d4d4d4", borderRadius: 6, background: "#fafafa", cursor: "pointer", color: "#555" }}>
+          Limpar
+        </button>
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ import { api, AuditLogEntry, Customer, fromCents, Meta, money, OrdersResponse, P
 import { calculateKpisFromTotals } from "./finance";
 import { CustomerDetailModal } from "./CustomerDetailModal";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
+import { FinanceView } from "./FinanceView";
 import { ImportView } from "./ImportView";
 import { KanbanView } from "./KanbanView";
 import { OrderDetailModal } from "./OrderDetailModal";
@@ -82,7 +83,7 @@ export function App() {
 
   const meta = metaQuery.data;
 
-  function handleViewOrderFromCustomer(orderId: number) {
+  function handleEditOrder(orderId: number) {
     setPendingOrderId(orderId);
     setView("orders");
   }
@@ -113,8 +114,8 @@ export function App() {
       {view === "dashboard" && <Dashboard meta={meta} />}
       {view === "orders" && <Orders meta={meta} pendingOrderId={pendingOrderId} onConsumePendingOrder={() => setPendingOrderId(null)} />}
       {view === "products" && <Products meta={meta} />}
-      {view === "customers" && <Customers onViewOrder={handleViewOrderFromCustomer} />}
-      {view === "finance" && <FinanceMockup />}
+      {view === "customers" && <Customers onEditOrder={handleEditOrder} />}
+      {view === "finance" && <FinanceView onEditOrder={handleEditOrder} />}
       {view === "todos" && <KanbanView />}
       {view === "import" && <ImportView />}
       {view === "settings" && <Settings />}
@@ -131,451 +132,6 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
         {subtitle && <p>{subtitle}</p>}
       </div>
     </header>
-  );
-}
-
-function FinanceMockup() {
-  const queryClient = useQueryClient();
-  const today = new Date().toISOString().split("T")[0];
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const [startDate, setStartDate] = useState(thirtyDaysAgo);
-  const [endDate, setEndDate] = useState(today);
-  const [filterType, setFilterType] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterCostType, setFilterCostType] = useState("");
-
-  /* Date presets */
-  function setPreset(label: string) {
-    const now = new Date();
-    if (label === "Hoje") { setStartDate(today); setEndDate(today); }
-    else if (label === "7D") { const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); setStartDate(d.toISOString().split("T")[0]); setEndDate(today); }
-    else if (label === "30D") { setStartDate(thirtyDaysAgo); setEndDate(today); }
-    else if (label === "Este mês") { setStartDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]); setEndDate(today); }
-    else if (label === "Todo período") { setStartDate(""); setEndDate(""); }
-  }
-
-  const qs = new URLSearchParams();
-  if (startDate) qs.set("startDate", startDate);
-  if (endDate) qs.set("endDate", endDate);
-  if (filterType) qs.set("type", filterType);
-  if (filterCategory) qs.set("category", filterCategory);
-  if (filterCostType) qs.set("costType", filterCostType);
-  const sq = qs.toString();
-
-  const transactions = useQuery({
-    queryKey: ["transactions", sq],
-    queryFn: () => api<{ data: any[]; total: number }>(`/transactions?${sq}`),
-  });
-  const dre = useQuery({
-    queryKey: ["dre", startDate, endDate],
-    queryFn: () => api<any>(`/finance/dre?startDate=${startDate || ""}&endDate=${endDate || ""}`),
-  });
-  const openingBalance = useQuery({
-    queryKey: ["opening-balance"],
-    queryFn: () => api<{ openingBalanceCents: number }>("/finance/opening-balance"),
-  });
-  const categories = useQuery({
-    queryKey: ["finance-categories"],
-    queryFn: () => api<{ data: { id: number; name: string; type: string; color: string }[] }>("/finance/categories"),
-  });
-
-  const incomeCents = (transactions.data?.data ?? []).filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + t.amountCents, 0);
-  const expenseCents = (transactions.data?.data ?? []).filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + t.amountCents, 0);
-  const openingBalanceCents = openingBalance.data?.openingBalanceCents ?? 520000;
-  const balanceCents = openingBalanceCents + incomeCents - expenseCents;
-
-  const d = dre.data;
-  const realized = d?.orders?.realized ?? {};
-  const pending = d?.orders?.pending ?? {};
-  const txVar = d?.transactions?.variableExpenses ?? { total: 0, count: 0 };
-  const txFix = d?.transactions?.fixedExpenses ?? { total: 0, count: 0 };
-  const txOther = d?.transactions?.otherIncome ?? { total: 0, count: 0 };
-
-  function calcDreRow(real: Record<string, number>, pend: Record<string, number>) {
-    const gross = (real.productsAmountCents ?? 0) + (real.shippingCustomerCents ?? 0) - (real.discountCents ?? 0);
-    const deductions = (real.platformFeeCents ?? 0) + (real.shippingTotalCents ?? 0) + (real.otherCostsCents ?? 0);
-    const net = gross - deductions;
-    const prodCost = real.itemsCostCents ?? 0;
-    const pack = real.packagingCents ?? 0;
-    const contribution = net - prodCost - pack - txVar.total;
-    const netResult = contribution - txFix.total + txOther.total;
-
-    const grossP = (pend.productsAmountCents ?? 0) + (pend.shippingCustomerCents ?? 0) - (pend.discountCents ?? 0);
-    const deductionsP = (pend.platformFeeCents ?? 0) + (pend.shippingTotalCents ?? 0) + (pend.otherCostsCents ?? 0);
-    const netP = grossP - deductionsP;
-    const prodCostP = pend.itemsCostCents ?? 0;
-    const packP = pend.packagingCents ?? 0;
-    const contributionP = netP - prodCostP - packP;
-    const netResultP = contributionP;
-
-    const totalGross = gross + grossP;
-    const pct = (v: number) => totalGross > 0 ? ((v / totalGross) * 100).toFixed(1) : "0.0";
-
-    return {
-      rows: [
-        { label: "Receita bruta dos pedidos", pct: pct(gross + grossP), realized: gross, pending: grossP, cls: "finance-dre-section" },
-        { label: "(-) Deduções variáveis (taxas, fretes, descontos)", pct: pct(deductions + deductionsP), realized: -deductions, pending: -deductionsP, cls: "finance-dre-negative" },
-        { label: "Receita líquida", pct: pct(net + netP), realized: net, pending: netP, cls: "finance-dre-total" },
-        { label: "(-) Custo dos produtos", pct: pct(prodCost + prodCostP), realized: -prodCost, pending: -prodCostP, cls: "finance-dre-negative" },
-        { label: "(-) Embalagens", pct: pct(pack + packP), realized: -pack, pending: -packP, cls: "finance-dre-negative" },
-        { label: "(-) Despesas variáveis", pct: pct(txVar.total), realized: -txVar.total, pending: 0, cls: "finance-dre-negative" },
-        { label: "MARGEM DE CONTRIBUIÇÃO", pct: pct(contribution + contributionP), realized: contribution, pending: contributionP, cls: "finance-dre-result", borderTop: true },
-        { label: "(-) Despesas fixas", pct: pct(txFix.total), realized: -txFix.total, pending: 0, cls: "finance-dre-negative" },
-        { label: "(+) Outras receitas", pct: pct(txOther.total), realized: txOther.total, pending: 0, cls: "finance-dre-positive" },
-        { label: "RESULTADO LÍQUIDO", pct: pct(netResult + netResultP), realized: netResult, pending: netResultP, cls: "finance-dre-result" },
-      ],
-    };
-  }
-
-  const dreRows = calcDreRow(realized, pending).rows;
-
-  /* ── Transaction modal state ── */
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingTx, setEditingTx] = useState<any>(null);
-  const [txType, setTxType] = useState<"income" | "expense">("income");
-  const [txCategory, setTxCategory] = useState("Vendas");
-  const [txDate, setTxDate] = useState(today);
-  const [txDescription, setTxDescription] = useState("");
-  const [txAmount, setTxAmount] = useState("");
-  const [txCostType, setTxCostType] = useState("variable");
-  const [txOrderIds, setTxOrderIds] = useState<number[]>([]);
-  const [orderSearch, setOrderSearch] = useState("");
-
-  /* ── Category modal state ── */
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatType, setNewCatType] = useState<"income" | "expense">("expense");
-
-  const deliveredOrders = useQuery({
-    queryKey: ["orders-delivered"],
-    queryFn: () => api<any>(`/orders?limit=200&statusId=4`),
-  });
-
-  const filteredOrders = (deliveredOrders.data?.data ?? []).filter((o: any) =>
-    orderSearch
-      ? o.id.toString().includes(orderSearch)
-        || o.externalOrderId?.includes(orderSearch)
-        || o.customerName?.toLowerCase().includes(orderSearch.toLowerCase())
-      : true
-  ).slice(0, 10);
-
-  const catList = categories.data?.data ?? [];
-
-  const hasAutoCalc = txType === "income" && txOrderIds.length > 0;
-  const autoValue = useQuery({
-    queryKey: ["order-totals", [...txOrderIds].sort().join(",")],
-    queryFn: () => api<{ amountReceivedCents: number }>(`/orders/totals?ids=${txOrderIds.join(",")}`),
-    enabled: hasAutoCalc,
-  });
-  const autoAmountCents = autoValue.data?.amountReceivedCents ?? 0;
-  const autoLoading = hasAutoCalc && autoValue.isFetching;
-
-  const saveMutation = useMutation({
-    mutationFn: ({ id, body }: { id?: number; body: any }) =>
-      id ? api(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(body) }) : api("/transactions", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["dre"] });
-      setModalOpen(false);
-      resetForm();
-    },
-    onError: (err) => alert("Erro ao salvar: " + (err instanceof Error ? err.message : "Erro desconhecido")),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => api(`/transactions/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["dre"] });
-    },
-    onError: (err) => alert("Erro ao excluir: " + (err instanceof Error ? err.message : "Erro desconhecido")),
-  });
-
-  const createCatMutation = useMutation({
-    mutationFn: (body: any) => api("/finance/categories", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["finance-categories"] });
-      setNewCatName("");
-    },
-    onError: (err) => alert("Erro ao criar categoria: " + (err instanceof Error ? err.message : "Erro desconhecido")),
-  });
-
-  const deleteCatMutation = useMutation({
-    mutationFn: (id: number) => api(`/finance/categories/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["finance-categories"] }),
-    onError: (err) => alert("Erro ao excluir categoria: " + (err instanceof Error ? err.message : "Erro desconhecido")),
-  });
-
-  function openCreateModal() {
-    resetForm();
-    setModalOpen(true);
-  }
-
-  function openEditModal(tx: any) {
-    setEditingTx(tx);
-    setTxType(tx.type);
-    setTxCategory(tx.category);
-    setTxDate(tx.date);
-    setTxDescription(tx.description || "");
-    setTxAmount(((tx.amountCents ?? 0) / 100).toFixed(2).replace(".", ","));
-    setTxCostType(tx.costType || "variable");
-    setTxOrderIds(tx.orders?.map((o: any) => o.id) ?? []);
-    setOrderSearch("");
-    setModalOpen(true);
-  }
-
-  function resetForm() {
-    setTxType("income"); setTxCategory("Vendas"); setTxDate(today);
-    setTxDescription(""); setTxAmount(""); setTxCostType("variable"); setTxOrderIds([]); setOrderSearch("");
-    setEditingTx(null);
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const amountCents = hasAutoCalc
-      ? autoAmountCents
-      : Math.round(Number((txAmount ?? "0").replace(/\./g, "").replace(",", ".")) * 100);
-    const body = {
-      date: txDate, type: txType, category: txCategory, description: txDescription,
-      amountCents,
-      costType: txType === "expense" ? txCostType : null,
-      orderIds: txOrderIds,
-    };
-    saveMutation.mutate({ id: editingTx?.id, body });
-  }
-
-  return (
-    <>
-      <Header title="Financeiro" subtitle="Fluxo de caixa: entradas, saídas e resultado do período." />
-
-      <section className="kpi-section">
-        <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <KpiCard label="Saldo atual" value={money(balanceCents)} sub="Saldo inicial + movimentações" onMouseEnter={() => {}} onMouseLeave={() => {}} />
-          <KpiCard label="Entradas" value={money(incomeCents)} sub="No período selecionado" />
-          <KpiCard label="Saídas" value={money(expenseCents)} sub="No período selecionado" />
-        </div>
-      </section>
-
-      <div className="toolbar">
-        <div className="date-filter">
-          <button type="button" onClick={() => setPreset("Hoje")}>Hoje</button>
-          <button type="button" onClick={() => setPreset("7D")}>7D</button>
-          <button type="button" onClick={() => setPreset("30D")}>30D</button>
-          <button type="button" onClick={() => setPreset("Este mês")}>Este mês</button>
-          <button type="button" onClick={() => setPreset("Todo período")}>Todo período</button>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <span style={{ color: "#888" }}>até</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        </div>
-        <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="">Todas categorias</option>
-          {catList.map((c: any) => <option key={c.id}>{c.name}</option>)}
-        </select>
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="">Todos tipos</option>
-          <option value="income">Entradas</option>
-          <option value="expense">Saídas</option>
-        </select>
-        <select value={filterCostType} onChange={(e) => setFilterCostType(e.target.value)}>
-          <option value="">Todos custos</option>
-          <option value="fixed">Custos fixos</option>
-          <option value="variable">Custos variáveis</option>
-        </select>
-        <button type="button" onClick={() => setCategoryModalOpen(true)} style={{ background: "none", border: "1px solid #ddd", borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 12 }}>
-          Categorias
-        </button>
-        <button type="button" onClick={openCreateModal}>Nova movimentação</button>
-      </div>
-
-      <Panel title="Movimentações de caixa">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Descrição</th>
-                <th>Categoria</th>
-                <th>Classificação</th>
-                <th>Pedidos vinculados</th>
-                <th style={{ textAlign: "right" }}>Valor</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(transactions.data?.data ?? []).map((t: any) => (
-                <tr key={t.id}>
-                  <td>{fmtDate(t.date)}</td>
-                  <td>
-                    <strong style={{ display: "block", fontSize: 13 }}>{t.description}</strong>
-                    <span style={{ color: "#888", fontSize: 12 }}>{t.type === "income" ? "Entrada" : "Saída"}</span>
-                  </td>
-                  <td><span className={`tag ${t.type === "income" ? "tag-green" : "tag-red"}`}>{t.category}</span></td>
-                  <td>
-                    {t.type === "expense" ? (
-                      <span className={`tag ${t.costType === "fixed" ? "tag-blue" : "tag-gold"}`}>
-                        {t.costType === "fixed" ? "Fixo" : "Variável"}
-                      </span>
-                    ) : <span style={{ color: "#999" }}>-</span>}
-                  </td>
-                  <td>
-                    {t.orders?.length ? (
-                      <div className="finance-order-links">
-                        {t.orders.map((o: any) => (
-                          <button key={o.id} type="button" className="link-btn">
-                            #{o.id}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""}
-                          </button>
-                        ))}
-                      </div>
-                    ) : <span style={{ color: "#999" }}>-</span>}
-                  </td>
-                  <td style={{ textAlign: "right", fontWeight: 700, color: t.type === "income" ? "#059669" : "#dc2626" }}>
-                    {t.type === "income" ? "+" : "-"}{money(t.amountCents)}
-                  </td>
-                  <td>
-                    <button type="button" className="icon-btn" title="Editar" onClick={() => openEditModal(t)}><Pencil size={15} /></button>
-                    <button type="button" className="icon-btn icon-btn-danger" title="Excluir" onClick={() => { if (confirm("Excluir transação?")) deleteMutation.mutate(t.id); }}>
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      <Panel title="DRE do período">
-        <div className="finance-dre">
-          <div className="finance-dre-row finance-dre-header">
-            <span>Conta</span>
-            <span>%</span>
-            <strong>Realizado</strong>
-            <strong className="dre-pending">A Realizar</strong>
-          </div>
-          {dreRows.map((row, i) => (
-            <div key={i} className={"finance-dre-row " + row.cls + (row.realized < 0 && row.label === "RESULTADO LÍQUIDO" ? " negative" : "")} style={row.borderTop ? { borderTop: "2px solid #ddd" } : {}}>
-              <span>{row.label}</span>
-              <span>{row.pct}%</span>
-              <strong style={row.realized < 0 ? { color: "#dc2626" } : row.realized > 0 && row.label.startsWith("(+)") ? { color: "#059669" } : {}}>{row.realized >= 0 ? money(row.realized) : `-${money(-row.realized)}`}</strong>
-              <strong className="dre-pending" style={row.pending < 0 ? { color: "#dc2626" } : {}}>{row.pending >= 0 ? money(row.pending) : `-${money(-row.pending)}`}</strong>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      {/* Transaction modal */}
-      <ModalShell open={modalOpen} onClose={() => { setModalOpen(false); setEditingTx(null); }} title={editingTx ? "Editar movimentação" : "Nova movimentação financeira"} asForm onSubmit={handleSubmit}>
-        <div className="modal-order-main">
-          <div className="order-card">
-            <div className="order-card-title">Dados da movimentação</div>
-            <div className="order-grid-3">
-              <div className="order-field">
-                <label>Tipo</label>
-                <select value={txType} onChange={(e) => setTxType(e.target.value as any)}>
-                  <option value="income">Entrada</option>
-                  <option value="expense">Saída</option>
-                </select>
-              </div>
-              <div className="order-field">
-                <label>Categoria</label>
-                <div className="finance-category-picker">
-                  <select value={txCategory} onChange={(e) => setTxCategory(e.target.value)}>
-                    {catList.map((c: any) => <option key={c.id}>{c.name}</option>)}
-                  </select>
-                  <button type="button" onClick={() => setCategoryModalOpen(true)}>Gerenciar</button>
-                </div>
-              </div>
-              <div className="order-field">
-                <label>Data</label>
-                <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} />
-              </div>
-              <div className="order-field" style={{ gridColumn: "span 2" }}>
-                <label>Descrição</label>
-                <input value={txDescription} onChange={(e) => setTxDescription(e.target.value)} placeholder="Descrição da movimentação" />
-              </div>
-              <div className="order-field">
-                <label>Valor (R$)</label>
-                <input value={hasAutoCalc && !autoLoading ? fromCents(autoAmountCents) : txAmount}
-                       onChange={(e) => setTxAmount(e.target.value)}
-                       placeholder="0,00"
-                       disabled={hasAutoCalc} />
-                {autoLoading && <span style={{ fontSize: 11, color: "#888" }}>Calculando...</span>}
-                {hasAutoCalc && !autoLoading && <span style={{ fontSize: 11, color: "#888" }}>Calculado dos pedidos</span>}
-              </div>
-              {txType === "expense" && (
-                <div className="order-field">
-                  <label>Classificação de custo</label>
-                  <select value={txCostType} onChange={(e) => setTxCostType(e.target.value)}>
-                    <option value="variable">Custo variável</option>
-                    <option value="fixed">Custo fixo</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
-          {txType === "income" && txCategory === "Vendas" && (
-            <div className="order-card">
-              <div className="order-card-title">Vincular pedidos entregues</div>
-              <div className="finance-linked-orders-mock">
-                <input placeholder="Buscar por #ID ou nome do cliente..." value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
-                {filteredOrders.map((o: any) => {
-                  const selected = txOrderIds.includes(o.id);
-                  return (
-                    <div key={o.id} className="finance-linked-order-row" style={{ cursor: "pointer", opacity: selected ? 1 : 0.6 }} onClick={() => {
-                      setTxOrderIds((prev) => selected ? prev.filter((id) => id !== o.id) : [...prev, o.id]);
-                    }}>
-                      <span>#{o.id}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""} · {o.customerName || "—"}</span>
-                      <span style={{ color: selected ? "#059669" : "#999", fontWeight: 700 }}>{selected ? "✓" : "+"}</span>
-                    </div>
-                  );
-                })}
-                {txOrderIds.length > 0 && (
-                  <div style={{ fontSize: 12, color: "#666", padding: "4px 0" }}>
-                    {txOrderIds.length} pedido(s) vinculado(s)
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <FormActions onCancel={() => { setModalOpen(false); setEditingTx(null); }} submitLabel={editingTx ? "Atualizar" : "Salvar"} submitting={saveMutation.isPending || autoLoading} />
-        </div>
-      </ModalShell>
-
-      {/* Category modal */}
-      <ModalShell open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title="Gerenciar categorias" maxWidth="560px">
-        <div className="modal-order-main">
-          <div className="order-card">
-            <div className="order-card-title">Nova categoria</div>
-            <div className="finance-category-form-row">
-              <input placeholder="Nome da categoria" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
-              <select value={newCatType} onChange={(e) => setNewCatType(e.target.value as any)}>
-                <option value="income">Receita</option>
-                <option value="expense">Despesa</option>
-              </select>
-              <button type="button" disabled={!newCatName || createCatMutation.isPending} onClick={() => createCatMutation.mutate({ name: newCatName, type: newCatType })}>
-                Adicionar
-              </button>
-            </div>
-          </div>
-          <div className="order-card">
-            <div className="order-card-title">Categorias existentes</div>
-            <div className="finance-category-list">
-              {catList.map((cat: any) => (
-                <div key={cat.id} className="finance-category-list-row">
-                  <div>
-                    <strong>{cat.name}</strong>
-                    <span className={`tag ${cat.color}`}>{cat.type === "income" ? "Receita" : "Despesa"}</span>
-                  </div>
-                  <button type="button" className="icon-btn icon-btn-danger" onClick={() => { if (confirm(`Excluir categoria "${cat.name}"?`)) deleteCatMutation.mutate(cat.id); }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </ModalShell>
-    </>
   );
 }
 
@@ -949,7 +505,7 @@ function validateDocument(value: string) {
   return "CPF deve ter 11 dígitos ou CNPJ 14 dígitos";
 }
 
-function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) {
+function Customers({ onEditOrder }: { onEditOrder?: (orderId: number) => void }) {
   const queryClient = useQueryClient();
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -989,6 +545,7 @@ function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [viewing, setViewing] = useState<Customer | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [message, setMessage] = useState("");
 
@@ -1523,7 +1080,15 @@ function Customers({ onViewOrder }: { onViewOrder: (orderId: number) => void }) 
           open
           onClose={closeDetailModal}
           onEdit={handleViewEdit}
-          onViewOrder={onViewOrder}
+          onViewOrder={(id: number) => setDetailOrderId(id)}
+        />
+      )}
+      {detailOrderId && (
+        <OrderDetailModal
+          orderId={detailOrderId}
+          open={detailOrderId !== null}
+          onClose={() => setDetailOrderId(null)}
+          onEdit={(id) => { setDetailOrderId(null); onEditOrder?.(id); }}
         />
       )}
       <ConfirmDeleteModal
@@ -1833,7 +1398,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
         </select>
         <input
           type="search"
-          placeholder="Buscar pedidos..."
+          placeholder="Buscar por #ID, pedido externo, cliente, SKU, notas..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           style={{ flex: 1, maxWidth: 240 }}

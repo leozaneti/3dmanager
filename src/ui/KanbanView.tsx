@@ -104,7 +104,7 @@ function SortableCard({ card, columnId, onClick }: { card: TodoCard; columnId: n
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const priorityColors: Record<number, string> = { 0: "var(--muted, #94a3b8)", 1: "#f59e0b", 2: "#dc2626" };
+  const priorityColors: Record<number, string> = { 0: "#059669", 1: "#d97706", 2: "#dc2626" };
   const priorityLabels: Record<number, string> = { 0: "", 1: "Alta", 2: "Urgente" };
   const isOverdue = card.dueDate && !card.doneAt && card.dueDate < new Date().toISOString().slice(0, 10);
 

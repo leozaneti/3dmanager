@@ -49,7 +49,6 @@ export interface DashboardData {
   previousTotals: DashboardTotals | null;
   channels: DashboardChannel[];
   products: DashboardProduct[];
-  productsByProfit: DashboardProduct[];
   stores: DashboardStore[];
   timeSeries: DashboardTimePoint[];
 }

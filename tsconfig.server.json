@@ -11,5 +11,6 @@
     "rootDir": "server",
     "noEmit": false
   },
-  "include": ["server/**/*.ts"]
+  "include": ["server/**/*.ts"],
+  "exclude": ["server/__tests__/**"]
 }

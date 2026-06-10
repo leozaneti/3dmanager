@@ -174,7 +174,7 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
         }))
       );
     } else {
-      setStoreId(meta.stores[0]?.id ? String(meta.stores[0].id) : "");
+      setStoreId("");
       setSalesChannelId(meta.channels[0]?.id ? String(meta.channels[0].id) : "");
       setStatusId(meta.statuses[0]?.id ? String(meta.statuses[0].id) : "");
       setSaleDate(new Date().toISOString().slice(0, 10));
@@ -329,6 +329,7 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
             <div className="order-field">
               <label>Loja</label>
               <select value={storeId} onChange={(e) => setStoreId(e.target.value)} required>
+                <option value="">Selecione uma loja</option>
                 {meta.stores.map((st) => (
                   <option key={st.id} value={st.id}>{st.name}</option>
                 ))}

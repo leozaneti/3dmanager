@@ -1,35 +1,40 @@
 import { DashboardChannel } from "../dashboard-types";
 import { money } from "../api";
+import { PieChart, Pie, Cell, Tooltip } from "recharts";
 
 type ViewMode = "revenue" | "orders" | "margin";
+
+const COLORS = ["#059669", "#6366f1", "#f59e0b", "#8b5cf6"];
+
+function formatValue(val: number, view: ViewMode) {
+  if (view === "orders") return Math.round(val).toString();
+  if (view === "margin") return val.toFixed(1) + "%";
+  return money(val);
+}
+
+function CustomTip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{d.name}</div>
+      <div style={{ color: "#555" }}>{formatValue(d.value, d._view)}</div>
+    </div>
+  );
+}
 
 export function DashboardChannels({ channels, view }: { channels: DashboardChannel[]; view: ViewMode }) {
   const total = channels.reduce((s, c) => s + (view === "orders" ? c.orderCount : view === "margin" ? 1 : c.grossRevenueCents), 0);
   const avgMargin = channels.length ? channels.reduce((s, c) => s + c.marginPercent, 0) / channels.length : 0;
-  const circumference = 2 * Math.PI * 72;
 
-  let arcs: { color: string; dash: string; offset: number }[] = [];
-  if (view === "margin") {
-    const sorted = [...channels].sort((a, b) => b.marginPercent - a.marginPercent);
-    const maxMargin = Math.max(...sorted.map(c => c.marginPercent), 1);
-    let offset = 0;
-    arcs = sorted.map((c, i) => {
-      const pct = c.marginPercent / maxMargin;
-      const colors = ["#059669", "#6366f1", "#f59e0b", "#8b5cf6"];
-      const seg = { color: colors[i] || "#888", dash: `${pct * circumference} ${circumference * (1 - pct)}`, offset };
-      offset += pct * circumference;
-      return seg;
-    });
-  } else {
-    let accumulated = 0;
-    arcs = channels.map((c, i) => {
-      const pct = total > 0 ? (view === "orders" ? c.orderCount / total : c.grossRevenueCents / total) : 0;
-      const colors = ["#059669", "#6366f1", "#f59e0b", "#8b5cf6"];
-      const seg = { color: colors[i] || "#888", dash: `${pct * circumference} ${circumference * (1 - pct)}`, offset: accumulated };
-      accumulated += pct * circumference;
-      return seg;
-    });
-  }
+  const data = view === "margin"
+    ? channels.map(c => ({ name: c.name, value: c.marginPercent, _view: view, marginPercent: c.marginPercent }))
+    : channels.map(c => ({
+      name: c.name,
+      value: view === "orders" ? c.orderCount : c.grossRevenueCents,
+      _view: view,
+      marginPercent: c.marginPercent,
+    }));
 
   const centerText = view === "orders"
     ? `${total}`
@@ -40,33 +45,38 @@ export function DashboardChannels({ channels, view }: { channels: DashboardChann
 
   return (
     <div className="channel-body">
-      <svg className="channel-donut" width={180} height={180} viewBox="0 0 180 180">
-        <circle cx={90} cy={90} r={72} fill="none" stroke="#f0f0f0" strokeWidth={28} />
-        {arcs.map((arc, i) => (
-          <circle
-            key={i}
-            cx={90} cy={90} r={72}
-            fill="none"
-            stroke={arc.color}
-            strokeWidth={28}
-            strokeDasharray={arc.dash}
-            transform={`rotate(${(arc.offset / circumference) * 360 - 90} 90 90)`}
-          />
-        ))}
-        <circle cx={90} cy={90} r={54} fill="#fff" />
-        <text x={90} y={84} textAnchor="middle" fontSize={22} fontWeight={700} fill="#111">{centerText}</text>
-        <text x={90} y={104} textAnchor="middle" fontSize={11} fill="#888">{centerLabel}</text>
-      </svg>
+      <div style={{ position: "relative", width: 180, height: 180, flexShrink: 0 }}>
+        <PieChart width={180} height={180}>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx={90} cy={90} innerRadius={54} outerRadius={82}
+            startAngle={90} endAngle={-270}
+          >
+            {data.map((_, i) => (
+              <Cell key={i} fill={COLORS[i] ?? "#888"} />
+            ))}
+          </Pie>
+          <Tooltip content={<CustomTip />} />
+        </PieChart>
+        <div style={{
+          position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -60%)",
+          textAlign: "center", pointerEvents: "none",
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#111", lineHeight: 1.2 }}>{centerText}</div>
+          <div style={{ fontSize: 11, color: "#888" }}>{centerLabel}</div>
+        </div>
+      </div>
       <div className="channel-side">
         <div className="channel-bar-list">
           {channels.map((c, i) => {
             const share = total > 0
               ? view === "orders" ? (c.orderCount / total) * 100 : (c.grossRevenueCents / total) * 100
               : 0;
-            const colors = ["#059669", "#6366f1", "#f59e0b", "#8b5cf6"];
             return (
               <div key={c.name} className="ch-row">
-                <span className="ch-dot" style={{ background: colors[i] || "#888" }}></span>
+                <span className="ch-dot" style={{ background: COLORS[i] ?? "#888" }}></span>
                 <span className="ch-name">{c.name}</span>
                 <span className="ch-bar-wrap"><span className="ch-bar" style={{ width: share + "%" }}></span></span>
                 <span className="ch-val">{share.toFixed(0)}%</span>

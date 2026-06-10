@@ -5,7 +5,7 @@ metadata:
   sistema: "3D Manager"
   versao: "0.1.0"
   descricao: "Sistema de gestão para e-commerce de impressão 3D"
-  ultima_atualizacao: "2026-06"
+  ultima_atualizacao: "2026-06-09"
 
 regras:
 
@@ -242,20 +242,102 @@ regras:
     formula: "gap = total - (produtos + freteRecebido + tarifa + freteTotal + desconto); cupom = gap < 0 ? |gap| : 0"
     destino: "order_financials.other_costs_cents"
 
+  - id: RN36
+    dominio: "Importação MP"
+    titulo: "Importação de Extrato MP (CSV)"
+    descricao: >
+      Fluxo em duas fases: Preview (upload CSV → análise) e Confirmar (execução).
+      Arquivo CSV separado por ; com colunas padronizadas.
+      Cache de preview expira em 10 minutos.
+    fases:
+      - "Preview (upload + análise)"
+      - "Confirmar (execução em lote)"
+    formato: "CSV (; separador)"
+    cache_ttl: "10 minutos"
+
+  - id: RN37
+    dominio: "Importação MP"
+    titulo: "Filtro de Transações MP"
+    descricao: "Regras de filtragem das linhas do CSV do Mercado Pago."
+    filtros:
+      - tipo: "SETTLEMENT"
+        real_amount: "> 0"
+        acao: "Income Vendas"
+      - tipo: "SETTLEMENT_SHIPPING"
+        real_amount: "> 0"
+        acao: "Income Vendas"
+      - tipo: "DISPUTE / DISPUTE_SHIPPING"
+        real_amount: "< 0"
+        acao: "Expense Estorno/Reembolso"
+      - condicao: "SOURCE_ID presente em DISPUTE"
+        acao: "Ignorado (reversão de chargeback)"
+      - condicao: "PACK_ID vazio AND ORDER_ID vazio"
+        acao: "Ignorado (asset management)"
+
+  - id: RN38
+    dominio: "Importação MP"
+    titulo: "Deduplicação MP"
+    descricao: >
+      Chave única (source_id, amount_cents, type) na tabela transactions com
+      source_type='mp_settlement'. Permite re-importar sem duplicatas.
+    chave: "(source_id, amount_cents, type)"
+    condicao: "source_type = 'mp_settlement'"
+
+  - id: RN39
+    dominio: "Importação MP"
+    titulo: "Link PACK_ID/ORDER_ID"
+    descricao: >
+      Vincula transações MP a pedidos via external_order_id.
+      1º PACK_ID, 2º ORDER_ID. Sem match = Venda externa em otherIncome.
+    ordem: ["PACK_ID → external_order_id", "ORDER_ID → external_order_id"]
+    sem_match: "Venda externa (sem transaction_orders, entra em otherIncome)"
+    efeito: "Apenas marca o pedido como realizado. Não altera order_financials."
+
   # ───────────────────────────────────────────────────────
   # 6. DRE
   # ───────────────────────────────────────────────────────
 
   - id: RN20
     dominio: "DRE"
-    titulo: "Separação Realizado × A Realizar"
+    titulo: "Receita via Transações Financeiras"
     descricao: >
-      Realizado = pedidos Entregues com transação de receita vinculada.
-      A Realizar = pedidos Entregues sem transação de receita vinculada.
-    realizado: "entregue AND EXISTS (transaction_orders + transactions.type='income')"
-    a_realizar: "entregue AND NOT EXISTS (transaction_orders + transactions.type='income')"
+      Realizado = soma dos amount_cents das transactions income vinculadas a pedidos Entregues.
+      A Realizar = estimado via order_financials (prod + ship_cust - fee - disc - ship_total).
+    realizado: "sum(transactions.amount_cents) WHERE os.name='Entregue' AND EXISTS transaction_orders"
+    a_realizar: "order_financials: prod + ship_cust - fee - disc - ship_total WHERE Entregue sem income tx"
 
   - id: RN21
+    dominio: "DRE"
+    titulo: "Estrutura do DRE"
+    descricao: >
+      Receita líquida (sem Deduções variáveis), Custos adicionais incluso antes da
+      Margem de Contribuição. As taxas/fretes/descontos já são descontados na fonte
+      pelo MP e refletidos no valor do SETTLEMENT.
+    estrutura:
+      - "(+) Receita de vendas (realizada + estimada)"
+      - "(-) Custo dos produtos"
+      - "(-) Embalagens"
+      - "(-) Custos adicionais da venda"
+      - "(-) Despesas variáveis"
+      - "= MARGEM DE CONTRIBUIÇÃO"
+      - "(-) Despesas fixas"
+      - "(+) Outras receitas"
+      - "= RESULTADO LÍQUIDO"
+
+  - id: RN22
+    dominio: "DRE"
+    titulo: "Alerta de Divergência"
+    descricao: >
+      Compara received (soma das transactions) com expected
+      (prod + ship_cust - fee - disc - ship_total) por pedido.
+      Alerta se |diff| > max(R$1,00, 5% de expected).
+    tolerancia: "max(R$1.00, 5%)"
+    causas:
+      - "Settlement parcial (mais parcelas a receber)"
+      - "Estorno/reembolso não registrado"
+      - "Erro no preenchimento do order_financials"
+
+  - id: RN23
     dominio: "DRE"
     titulo: "Classificação de Transações"
     descricao: "Receitas e despesas são categorizadas para composição do DRE."

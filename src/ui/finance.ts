@@ -1,3 +1,5 @@
+// ATENÇÃO: Fórmula duplicada em server/calculations.ts (calculateOrderTotals).
+// Mantenha os dois arquivos em sincronia ao alterar a lógica financeira.
 export function calculateKpisFromTotals(ft: {
   productsAmountCents: number;
   shippingCustomerCents: number;
