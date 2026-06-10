@@ -92,7 +92,7 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
     if (lower.includes("cancelado") || lower.includes("cancelada")) return "Cancelado";
     if (lower.includes("entregue")) return "Entregue";
     if (lower.includes("enviado") || lower.includes("a caminho")) return "Enviado";
-    if (lower.includes("produção") || lower.includes("producao") || lower.includes("preparando")) return "Producao";
+    if (lower.includes("produção") || lower.includes("producao") || lower.includes("preparando")) return "Novo";
     return "";
   }
 
@@ -103,11 +103,10 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
 
   const STATUS_LEVEL: Record<string, number> = {
     "novo": 1,
-    "producao": 2,
-    "enviado": 3,
-    "entregue": 4,
-    "devolvido": 5,
-    "cancelado": 5,
+    "enviado": 2,
+    "entregue": 3,
+    "devolvido": 4,
+    "cancelado": 4,
   };
 
   function getStatusLevel(status: string, description: string): number {

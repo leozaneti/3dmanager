@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { db, literal } from "./db.js";
 import type { ParsedOrder } from "./xlsxParser.js";
-import { STATUS_TRANSITIONS, normalize, mapStatus } from "./importShared.js";
+import { normalize, mapStatus } from "./importShared.js";
 
 export type ImportResult = {
   importedOrders: number;

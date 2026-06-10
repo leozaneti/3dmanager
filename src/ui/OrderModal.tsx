@@ -129,6 +129,8 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null);
+  const [deliveryForecastDate, setDeliveryForecastDate] = useState("");
+  const [deliveredDate, setDeliveredDate] = useState("");
   const [statusDescription, setStatusDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [shippingTotal, setShippingTotal] = useState("");
@@ -154,6 +156,8 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
       setCustomerId(order.customerId ? String(order.customerId) : "");
       const cust = customers.find((c) => c.id === order.customerId);
       setCustomerName(cust?.name ?? "");
+      setDeliveryForecastDate(order.deliveryForecastDate ?? "");
+      setDeliveredDate(order.deliveredDate ?? "");
       setStatusDescription(order.statusDescription ?? "");
       setNotes(order.notes ?? "");
       setShippingTotal(fromCents(order.shippingTotalCents));
@@ -181,6 +185,8 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
       setExternalOrderId("");
       setCustomerId("");
       setCustomerName("");
+      setDeliveryForecastDate("");
+      setDeliveredDate("");
       setStatusDescription("");
       setNotes("");
       setShippingTotal("");
@@ -286,6 +292,8 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
       salesChannelId: Number(salesChannelId),
       customerId: customerId ? Number(customerId) : null,
       notes,
+      deliveryForecastDate,
+      deliveredDate,
       financials: {
         productsAmountCents: productsTotal,
         shippingTotalCents,
@@ -396,6 +404,14 @@ export function OrderModal({ meta, products, customers, editingOrderId, orderDet
                   <option key={st.id} value={st.id}>{st.name}</option>
                 ))}
               </select>
+            </div>
+            <div className="order-field">
+              <label>Previsão de entrega</label>
+              <input type="date" value={deliveryForecastDate} onChange={(e) => setDeliveryForecastDate(e.target.value)} />
+            </div>
+            <div className="order-field">
+              <label>Data de entrega</label>
+              <input type="date" value={deliveredDate} onChange={(e) => setDeliveredDate(e.target.value)} />
             </div>
             <div className="order-field" style={{ gridColumn: "1 / -1" }}>
               <label>Observações</label>

@@ -44,7 +44,7 @@ describe("seed", () => {
 
   it("insere status de pedido", () => {
     const statuses = db.prepare("select name from order_statuses").all() as any[];
-    expect(statuses.length).toBeGreaterThanOrEqual(6);
+    expect(statuses.length).toBeGreaterThanOrEqual(5);
   });
 
   it("insere colunas kanban padrao (Backlog, Fazendo, Pronto)", () => {

@@ -1099,7 +1099,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
   });
 
   const STATUS_CLASS: Record<number, string> = {
-    1: "novo", 2: "producao", 3: "enviado", 4: "entregue", 5: "cancelado", 6: "devolvido"
+    1: "novo", 3: "enviado", 4: "entregue", 5: "cancelado", 6: "devolvido"
   };
 
   const deleteMutation = useDeleteMutation({
@@ -1348,6 +1348,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
                 <th className={`sortable ${sOrdBy === "salesChannelName" ? sOrdDir : ""}`} onClick={() => sOrdSort("salesChannelName")}>Canal</th>
                 <th className={`sortable ${sOrdBy === "customerName" ? sOrdDir : ""}`} onClick={() => sOrdSort("customerName")}>Cliente</th>
                 <th className={`sortable ${sOrdBy === "statusName" ? sOrdDir : ""}`} onClick={() => sOrdSort("statusName")}>Status</th>
+                <th style={{ fontSize: 11 }}>Entrega</th>
                 <th>Produtos</th>
                 <th className={`sortable ${sOrdBy === "totals.grossRevenueCents" ? sOrdDir : ""}`} onClick={() => sOrdSort("totals.grossRevenueCents")}>Receita</th>
                 <th className={`sortable ${sOrdBy === "totals.saleResultCents" ? sOrdDir : ""}`} onClick={() => sOrdSort("totals.saleResultCents")}>Resultado Venda</th>
@@ -1404,6 +1405,13 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
                     ) : (
                       <span className={`status-badge status-${STATUS_CLASS[order.statusId] ?? ""}`}>{order.statusName}</span>
                     )}
+                  </td>
+                  <td style={{ fontSize: 11, whiteSpace: "nowrap", color: "#6b7280" }}>
+                    {order.deliveryForecastDate && !order.deliveredDate
+                      ? `📅 ${order.deliveryForecastDate.slice(5)}`
+                      : order.deliveredDate
+                      ? `✅ ${order.deliveredDate.slice(5)}`
+                      : "—"}
                   </td>
                   <td style={{ maxWidth: 220, fontSize: 12 }}>
                     {order.items ? (
