@@ -224,6 +224,8 @@ export function migrate() {
       sales_channel_id integer not null references sales_channels(id),
       customer_id integer references customers(id),
       notes text,
+      delivery_forecast_date text,
+      delivered_date text,
       created_at text not null default current_timestamp,
       updated_at text not null default current_timestamp
     );
@@ -361,6 +363,17 @@ create table if not exists import_log (
   addColumnIfMissing("order_financials", "packaging_cents", "integer not null default 0");
   addColumnIfMissing("order_financials", "additional_costs_cents", "integer not null default 0");
 
+  addColumnIfMissing("orders", "delivery_forecast_date", "text");
+  addColumnIfMissing("orders", "delivered_date", "text");
+
+  /* Migração: status "Produção" (id=2) removido → rebaixar para "Novo" (id=1) */
+  const prodStatus = db.prepare("select id from order_statuses where name = 'Produção' or name = 'Producao'").get([]) as any;
+  if (prodStatus) {
+    const oldId = prodStatus.id;
+    db.prepare("update orders set status_id = 1, updated_at = current_timestamp where status_id = ?").run(oldId);
+    db.prepare("update order_statuses set active = 0 where id = ?").run(oldId);
+  }
+
   addColumnIfMissing("transactions", "source_id", "text");
   addColumnIfMissing("transactions", "source_type", "text");
   addColumnIfMissing("transactions", "account", "text");
@@ -428,11 +441,10 @@ function seed() {
   );
   [
     ["Novo", 1, 0],
-    ["Produção", 2, 0],
-    ["Enviado", 3, 0],
-    ["Entregue", 4, 0],
-    ["Cancelado", 5, 1],
-    ["Devolvido", 6, 1]
+    ["Enviado", 2, 0],
+    ["Entregue", 3, 0],
+    ["Cancelado", 4, 1],
+    ["Devolvido", 5, 1]
   ].forEach((row) => statusStmt.run(...row));
 
   const hasColumns = (db.prepare("select count(*) as c from todo_columns").get([]) as any)?.c ?? 0;

@@ -1571,8 +1571,6 @@ input[type=number] {
 }
 
 .status-badge.status-novo { background: #e8f4fd; color: #0369a1; }
-.status-badge.status-produção,
-.status-badge.status-producao { background: #fef3c7; color: #92400e; }
 .status-badge.status-enviado { background: #e0f2fe; color: #075985; }
 .status-badge.status-entregue { background: #dcfce7; color: #166534; }
 .status-badge.status-cancelado { background: #fee2e2; color: #991b1b; }

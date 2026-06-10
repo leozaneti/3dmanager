@@ -348,42 +348,38 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
                 <th className={`sortable ${sTxBy === "date" ? sTxDir : ""}`} onClick={() => sTxSort("date")}>Data</th>
                 <th className={`sortable ${sTxBy === "description" ? sTxDir : ""}`} onClick={() => sTxSort("description")}>Descrição</th>
                 <th className={`sortable ${sTxBy === "category" ? sTxDir : ""}`} onClick={() => sTxSort("category")}>Categoria</th>
-                <th className={`sortable ${sTxBy === "account" ? sTxDir : ""}`} onClick={() => sTxSort("account")}>Conta</th>
-                <th className={`sortable ${sTxBy === "externalTransactionNumber" ? sTxDir : ""}`} onClick={() => sTxSort("externalTransactionNumber")}>Nº externo</th>
-                <th className={`sortable ${sTxBy === "costType" ? sTxDir : ""}`} onClick={() => sTxSort("costType")}>Classificação</th>
-                <th>Pedidos vinculados</th>
+                <th className={`sortable ${sTxBy === "account" ? sTxDir : ""}`} onClick={() => sTxSort("account")} style={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }}>Conta</th>
+                <th className={`sortable ${sTxBy === "externalTransactionNumber" ? sTxDir : ""}`} onClick={() => sTxSort("externalTransactionNumber")} style={{ maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }}>Nº externo</th>
+                <th className={`sortable ${sTxBy === "costType" ? sTxDir : ""}`} onClick={() => sTxSort("costType")} style={{ fontSize: 11 }}>Classificação</th>
+                <th style={{ fontSize: 11 }}>Pedidos</th>
                 <th className={`sortable ${sTxBy === "amountCents" ? sTxDir : ""}`} onClick={() => sTxSort("amountCents")} style={{ textAlign: "right" }}>Valor</th>
-                <th>Ações</th>
+                <th style={{ width: 60 }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {sortedTxs.map((t: any) => (
                 <tr key={t.id}>
-                  <td>{fmtDate(t.date)}</td>
-                  <td>
+                    <td style={{ whiteSpace: "nowrap" }}>{fmtDate(t.date)}</td>
+                  <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     <strong style={{ display: "block", fontSize: 13 }}>{t.description}</strong>
                     <span style={{ color: "#888", fontSize: 12 }}>{t.type === "income" ? "Entrada" : "Saída"}</span>
                   </td>
                   <td><span className={`tag ${t.type === "income" ? "tag-green" : "tag-red"}`}>{t.category}</span></td>
-                  <td style={{ fontSize: 13 }}>{t.account || <span style={{ color: "#999" }}>-</span>}</td>
-                  <td style={{ fontSize: 13 }}>{t.externalTransactionNumber || <span style={{ color: "#999" }}>-</span>}</td>
+                  <td style={{ fontSize: 12, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.account || <span style={{ color: "#999" }}>-</span>}</td>
+                  <td style={{ fontSize: 11, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.externalTransactionNumber || <span style={{ color: "#999" }}>-</span>}</td>
                   <td>
                     {t.type === "expense" ? (
                       <span className={`tag ${t.costType === "fixed" ? "tag-blue" : "tag-gold"}`}>
                         {t.costType === "fixed" ? "Fixo" : "Variável"}
                       </span>
-                    ) : <span style={{ color: "#999" }}>-</span>}
+                    ) : <span style={{ color: "#ccc", fontSize: 11 }}>—</span>}
                   </td>
                   <td>
                     {t.orders?.length ? (
-                      <div className="finance-order-links">
-                        {t.orders.map((o: any) => (
-                          <button key={o.id} type="button" className="link-btn" onClick={() => setDetailOrderId(o.id)}>
-                            #{o.id} · {o.customer || "—"}{o.externalOrderId ? ` · ${o.externalOrderId}` : ""}
-                          </button>
-                        ))}
-                      </div>
-                    ) : <span style={{ color: "#999" }}>-</span>}
+                      <span className="finance-order-badge" onClick={() => setDetailOrderId(t.orders[0]?.id)} style={{ cursor: "pointer" }}>
+                        {t.orders.length} pedido{t.orders.length > 1 ? "s" : ""}
+                      </span>
+                    ) : <span style={{ color: "#ccc", fontSize: 11 }}>—</span>}
                   </td>
                   <td style={{ textAlign: "right", fontWeight: 700, color: t.type === "income" ? "#059669" : "#dc2626" }}>
                     {t.type === "income" ? "+" : "-"}{money(t.amountCents)}

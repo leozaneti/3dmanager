@@ -191,6 +191,8 @@ const orderSchema = z.object({
   salesChannelId: z.coerce.number().int().positive(),
   customerId: optionalId,
   notes: z.string().optional().default(""),
+  deliveryForecastDate: z.string().optional().default(""),
+  deliveredDate: z.string().optional().default(""),
   financials: z.object({
     productsAmountCents: cents,
     shippingTotalCents: cents,
@@ -969,6 +971,7 @@ app.get("/api/orders", (request) => {
   const data = all(
         `select
       o.id, o.status_id as statusId, o.external_order_id as externalOrderId, o.sale_date as saleDate,
+      o.delivery_forecast_date as deliveryForecastDate, o.delivered_date as deliveredDate,
       s.name as storeName, os.name as statusName, sc.name as salesChannelName,
       c.name as customerName, o.customer_id as customerId,
       (select group_concat(oi.sku || ' (×' || oi.quantity || ')', ', ') from order_items oi where oi.order_id = o.id) as items,
@@ -1049,6 +1052,7 @@ app.get("/api/orders/:id", (request, reply) => {
         o.id, o.store_id as storeId, o.external_order_id as externalOrderId, o.sale_date as saleDate,
         o.status_id as statusId, o.status_description as statusDescription, o.sales_channel_id as salesChannelId,
         o.customer_id as customerId, o.notes,
+        o.delivery_forecast_date as deliveryForecastDate, o.delivered_date as deliveredDate,
         s.name as storeName, os.name as statusName, sc.name as salesChannelName,
       c.name as customerName, o.customer_id as customerId,
         ${moneyFields.orderFinancials}
@@ -1081,7 +1085,7 @@ app.post("/api/orders", async (request, reply) => {
   const data = orderSchema.parse(request.body);
   const orderId = db.transaction<number>(() => {
     db.prepare(
-      "insert into orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes) values (?, ?, ?, ?, ?, ?, ?, ?)"
+      "insert into orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       data.storeId,
       data.externalOrderId,
@@ -1090,7 +1094,9 @@ app.post("/api/orders", async (request, reply) => {
       data.statusDescription,
       data.salesChannelId,
       data.customerId ?? null,
-      data.notes
+      data.notes,
+      data.deliveryForecastDate || null,
+      data.deliveredDate || null
     );
     db.prepare(
       "insert into order_financials (order_id, products_amount_cents, shipping_total_cents, shipping_customer_cents, platform_fee_cents, discount_cents, other_costs_cents, amount_received_cents, packaging_cents, additional_costs_cents) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -1147,12 +1153,12 @@ app.put("/api/orders/:id", async (request, reply) => {
       `update orders set
         store_id = ?, external_order_id = ?, sale_date = ?,
         status_id = ?, status_description = ?, sales_channel_id = ?,
-        customer_id = ?, notes = ?, updated_at = current_timestamp
+        customer_id = ?, notes = ?, delivery_forecast_date = ?, delivered_date = ?, updated_at = current_timestamp
        where id = ?`
     ).run(
       data.storeId, data.externalOrderId, data.saleDate,
       data.statusId, data.statusDescription, data.salesChannelId,
-      data.customerId ?? null, data.notes, id
+      data.customerId ?? null, data.notes, data.deliveryForecastDate || null, data.deliveredDate || null, id
     );
     db.prepare(
       `update order_financials set
@@ -1187,8 +1193,7 @@ app.put("/api/orders/:id", async (request, reply) => {
 });
 
 const STATUS_TRANSITIONS: Record<number, number[]> = {
-  1: [2, 5, 6],
-  2: [3, 5, 6],
+  1: [3, 5, 6],
   3: [4, 5, 6],
   4: [6],
   5: [],

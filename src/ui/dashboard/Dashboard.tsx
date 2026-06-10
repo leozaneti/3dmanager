@@ -148,8 +148,15 @@ export function Dashboard({ meta }: { meta: Meta }) {
 
       {dashboard.isLoading && <div className="kpi-loading">Carregando dados...</div>}
 
-      {data && (
-        <>
+      {data && <>
+          {(() => {
+            const ts = data.timeSeries;
+            const dailyDays = allTime && ts.length > 1
+              ? Math.max(1, Math.round((new Date(ts[ts.length - 1].period).getTime() - new Date(ts[0].period).getTime()) / 86400000) + 1)
+              : allTime ? ts.length
+              : Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
+            return <DashboardDaily totals={data.totals} previous={data.previousTotals} days={dailyDays} />;
+          })()}
           <DashboardKpiRow totals={data.totals} previous={data.previousTotals} type="financial" />
 
           <div className="panel">
@@ -158,8 +165,6 @@ export function Dashboard({ meta }: { meta: Meta }) {
           </div>
 
           <DashboardKpiRow totals={data.totals} previous={data.previousTotals} type="operational" />
-
-          <DashboardDaily totals={data.totals} previous={data.previousTotals} days={allTime ? data.timeSeries.length : Math.max(Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1, 1)} />
 
           <DashboardChart
             timeSeries={data.timeSeries}
@@ -193,7 +198,7 @@ export function Dashboard({ meta }: { meta: Meta }) {
             <SimpleTable rows={(data.stores ?? []).map(s => ({ ...s, marginPercent: s.grossRevenueCents ? (s.profitCents / s.grossRevenueCents) * 100 : 0 }))} columns={["name", "grossRevenueCents", "profitCents", "marginPercent"]} />
           </div>
         </>
-      )}
+      }
     </>
   );
 }

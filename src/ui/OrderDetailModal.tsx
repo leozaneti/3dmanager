@@ -86,6 +86,14 @@ export function OrderDetailModal({ orderId, open, onClose, onEdit, onViewOrder }
               <label>Pedido Externo</label>
               <div className="detail-value">{order.externalOrderId || "-"}</div>
             </div>
+            <div className="detail-field">
+              <label>Previsão de entrega</label>
+              <div className="detail-value">{order.deliveryForecastDate || "-"}</div>
+            </div>
+            <div className="detail-field">
+              <label>Data de entrega</label>
+              <div className="detail-value">{order.deliveredDate || "-"}</div>
+            </div>
           </div>
           {order.notes && (
             <div style={{ marginTop: "16px" }}>
