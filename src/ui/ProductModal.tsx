@@ -42,7 +42,7 @@ function calcProductionCost(inputs: CalculationInputs) {
   };
 }
 
-type PriceEntry = { salePriceCents: number; netReceivedCents: number };
+type PriceStrings = { salePrice: string; netReceived: string };
 type ChannelInfo = { id: number; name: string };
 
 type Props = {
@@ -66,7 +66,7 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
   const [additionalCost, setAdditionalCost] = useState("");
   const [recalculate, setRecalculate] = useState<"none" | "from_date" | "all">("none");
   const [recalculateFrom, setRecalculateFrom] = useState("");
-  const [prices, setPrices] = useState<Record<number, PriceEntry>>({});
+  const [priceInputs, setPriceInputs] = useState<Record<number, PriceStrings>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -78,12 +78,12 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
       setPrintTimeMinutes(String(editing.printTimeMinutes || ""));
       setAdditionalCost(fromCents(editing.additionalCostCents));
       api<{ salesChannelId: number; salePriceCents: number; netReceivedCents: number }[]>(`/products/${editing.id}/prices`).then((data) => {
-        const map: Record<number, PriceEntry> = {};
+        const map: Record<number, PriceStrings> = {};
         for (const item of data) {
-          map[item.salesChannelId] = { salePriceCents: item.salePriceCents, netReceivedCents: item.netReceivedCents };
+          map[item.salesChannelId] = { salePrice: fromCents(item.salePriceCents), netReceived: fromCents(item.netReceivedCents) };
         }
-        setPrices(map);
-      }).catch(() => setPrices({}));
+        setPriceInputs(map);
+      }).catch(() => setPriceInputs({}));
     } else {
       setName(initialName || "");
       setSku(initialSku || "");
@@ -91,7 +91,7 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
       setWeightGrams("");
       setPrintTimeMinutes("");
       setAdditionalCost("");
-      setPrices({});
+      setPriceInputs({});
     }
     setRecalculate("none");
     setRecalculateFrom(new Date().toISOString().slice(0, 10));
@@ -106,26 +106,31 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
     [weightG, printMin, addCents, settings]
   );
 
-  function getPrice(chId: number) {
-    return prices[chId] ?? { salePriceCents: 0, netReceivedCents: 0 };
+  function getPriceStr(chId: number) {
+    return priceInputs[chId] ?? { salePrice: "", netReceived: "" };
   }
 
-  function setPrice(chId: number, field: keyof PriceEntry, raw: string) {
-    const cents = toCents(raw);
-    setPrices((prev) => ({
+  function setPriceStr(chId: number, field: keyof PriceStrings, value: string) {
+    setPriceInputs((prev) => ({
       ...prev,
-      [chId]: { ...getPrice(chId), [field]: cents }
+      [chId]: { ...getPriceStr(chId), [field]: value }
     }));
   }
 
+  function parsePriceStr(chId: number) {
+    const p = getPriceStr(chId);
+    const saleCents = toCents(p.salePrice);
+    const netCents = toCents(p.netReceived) || saleCents;
+    return { salePriceCents: saleCents, netReceivedCents: netCents };
+  }
+
   function buildPriceArray() {
-    return Object.entries(prices)
-      .filter(([_, v]) => v.salePriceCents > 0)
-      .map(([chId, vals]) => ({
-        salesChannelId: Number(chId),
-        salePriceCents: vals.salePriceCents,
-        netReceivedCents: vals.netReceivedCents || vals.salePriceCents,
-      }));
+    return Object.entries(priceInputs)
+      .filter(([_, v]) => toCents(v.salePrice) > 0)
+      .map(([chId, _]) => {
+        const parsed = parsePriceStr(Number(chId));
+        return { salesChannelId: Number(chId), salePriceCents: parsed.salePriceCents, netReceivedCents: parsed.netReceivedCents };
+      });
   }
 
   const createMutation = useMutation({
@@ -173,10 +178,6 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
     } catch {
       /* errors handled by mutation state */
     }
-  }
-
-  function formatCents(c?: number) {
-    return c ? fromCents(c) : "";
   }
 
   return (
@@ -265,21 +266,22 @@ export function ProductModal({ settings, editing, open, onClose, initialSku, ini
                   <span>Markup</span>
                 </div>
                 {channels.map((ch) => {
-                  const p = getPrice(ch.id);
-                  const markup = calc?.totalCents && p.netReceivedCents
-                    ? ((p.netReceivedCents - calc.totalCents) / calc.totalCents * 100).toFixed(0)
+                  const p = getPriceStr(ch.id);
+                  const parsed = parsePriceStr(ch.id);
+                  const markup = calc?.totalCents && parsed.netReceivedCents
+                    ? ((parsed.netReceivedCents - calc.totalCents) / calc.totalCents * 100).toFixed(0)
                     : null;
                   return (
                     <div key={ch.id} className="price-channel-row">
                       <span className="price-channel-name">{ch.name}</span>
                       <input
-                        value={formatCents(p.salePriceCents)}
-                        onChange={(e) => setPrice(ch.id, "salePriceCents", e.target.value)}
+                        value={p.salePrice}
+                        onChange={(e) => setPriceStr(ch.id, "salePrice", e.target.value)}
                         placeholder="0,00"
                       />
                       <input
-                        value={formatCents(p.netReceivedCents)}
-                        onChange={(e) => setPrice(ch.id, "netReceivedCents", e.target.value)}
+                        value={p.netReceived}
+                        onChange={(e) => setPriceStr(ch.id, "netReceived", e.target.value)}
                         placeholder="0,00"
                       />
                       <span className="price-channel-markup">{markup ? `${markup}%` : "—"}</span>
