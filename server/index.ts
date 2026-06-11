@@ -582,7 +582,16 @@ app.get("/api/products", (request) => {
   const where = conditions.length ? "where " + conditions.join(" and ") : "";
   const total = (get(`select count(*) as c from products p ${where}`, params) as any)?.c ?? 0;
   const data = all(
-    `select ${moneyFields.product} from products p ${where} order by p.active desc, p.name ${limit ? `limit ${limit} offset ${offset}` : ""}`,
+    `select ${moneyFields.product},
+      min(psp.sale_price_cents) as minSalePriceCents,
+      max(psp.sale_price_cents) as maxSalePriceCents,
+      min(psp.net_received_cents) as minNetReceivedCents
+    from products p
+    left join product_sale_prices psp on psp.product_id = p.id
+    ${where}
+    group by p.id
+    order by p.active desc, p.name
+    ${limit ? `limit ${limit} offset ${offset}` : ""}`,
     params
   ).map(boolRow);
   return { data, total };
@@ -681,6 +690,38 @@ app.get("/api/products/:id/dependencies", (request) => {
   if (!product) return { error: "Produto não encontrado" };
   const orderItemsCount = (get("select count(*) as c from order_items where product_id = ?", [id]) as any)?.c ?? 0;
   return { orderItemsCount };
+});
+
+app.get("/api/products/:id/prices", (request) => {
+  const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
+  return all(
+    `select psp.sales_channel_id as salesChannelId, sc.name as salesChannelName,
+       psp.sale_price_cents as salePriceCents, psp.net_received_cents as netReceivedCents
+     from product_sale_prices psp
+     join sales_channels sc on sc.id = psp.sales_channel_id
+     where psp.product_id = ?`,
+    [id]
+  );
+});
+
+app.put("/api/products/:id/prices", async (request) => {
+  const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
+  const data = z.object({
+    prices: z.array(z.object({
+      salesChannelId: z.number().int().positive(),
+      salePriceCents: cents,
+      netReceivedCents: cents,
+    }))
+  }).parse(request.body);
+  const stmt = db.prepare(
+    `insert into product_sale_prices (product_id, sales_channel_id, sale_price_cents, net_received_cents) values (?, ?, ?, ?)
+     on conflict (product_id, sales_channel_id) do update set sale_price_cents = excluded.sale_price_cents, net_received_cents = excluded.net_received_cents`
+  );
+  for (const price of data.prices) {
+    stmt.run(id, price.salesChannelId, price.salePriceCents, price.netReceivedCents);
+  }
+  db.log("update", "product", id, `Preços de venda atualizados`);
+  return { ok: true };
 });
 
 app.get("/api/customers", (request) => {

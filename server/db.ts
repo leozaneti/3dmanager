@@ -321,6 +321,14 @@ create table if not exists import_log (
 
     create index if not exists idx_todos_column_pos on todos(column_id, position);
 
+    create table if not exists product_sale_prices (
+      product_id integer not null references products(id),
+      sales_channel_id integer not null references sales_channels(id),
+      sale_price_cents integer not null default 0,
+      net_received_cents integer not null default 0,
+      primary key (product_id, sales_channel_id)
+    );
+
     create table if not exists transactions (
       id integer primary key autoincrement,
       date text not null,

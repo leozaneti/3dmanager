@@ -3169,6 +3169,42 @@ td.col-checkbox input[type="checkbox"] {
 .ch-dot-label { font-size: 10px; color: #aaa; width: 32px; text-align: right; }
 .ch-sub-label { font-size: 10px; color: #aaa; width: 38px; text-align: right; }
 
+/* Price per channel grid */
+.price-channel-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.price-channel-header {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr 80px;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.price-channel-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr 80px;
+  gap: 8px;
+  align-items: center;
+}
+.price-channel-name {
+  font-size: 13px;
+  color: #333;
+}
+.price-channel-markup {
+  font-size: 13px;
+  font-weight: 600;
+  color: #059669;
+  text-align: right;
+}
+
 /* Dashboard kpi row variants */
 .kpi-row-dash { grid-template-columns: repeat(4, 1fr); }
 .kpi-row-dash-2 { grid-template-columns: repeat(2, 1fr); }

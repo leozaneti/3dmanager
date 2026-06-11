@@ -324,6 +324,7 @@ function Products({ meta }: { meta: Meta }) {
                 <th className={`sortable ${sProdBy === "weightGrams" ? sProdDir : ""}`} onClick={() => sProdSort("weightGrams")}>Peso</th>
                 <th className={`sortable ${sProdBy === "printTimeMinutes" ? sProdDir : ""}`} onClick={() => sProdSort("printTimeMinutes")}>Tempo</th>
                 <th className={`sortable ${sProdBy === "currentCostCents" ? sProdDir : ""}`} onClick={() => sProdSort("currentCostCents")}>Custo Total</th>
+                <th>Preço</th>
                 <th className={`sortable ${sProdBy === "active" ? sProdDir : ""}`} onClick={() => sProdSort("active")}>Status</th>
                 <th>Ações</th>
               </tr>
@@ -339,6 +340,11 @@ function Products({ meta }: { meta: Meta }) {
                   <td>{product.weightGrams ? `${product.weightGrams}g` : "-"}</td>
                   <td>{product.printTimeMinutes ? `${product.printTimeMinutes}min` : "-"}</td>
                   <td>{money(product.currentCostCents)}</td>
+                  <td>
+                    {product.minSalePriceCents != null && product.minSalePriceCents > 0
+                      ? `${money(product.minSalePriceCents)}${product.maxSalePriceCents !== product.minSalePriceCents ? ` ~ ${money(product.maxSalePriceCents)}` : ""}`
+                      : "—"}
+                  </td>
                   <td>{product.active ? "Ativo" : "Inativo"}</td>
                   <td>
                     <button type="button" className="icon-btn" onClick={() => { setEditing(product); setModalOpen(true); }} title="Editar">
@@ -352,7 +358,7 @@ function Products({ meta }: { meta: Meta }) {
               ))}
               {(products.data?.data ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={8}>Sem produtos cadastrados ainda.</td>
+                  <td colSpan={9}>Sem produtos cadastrados ainda.</td>
                 </tr>
               )}
             </tbody>
@@ -365,6 +371,7 @@ function Products({ meta }: { meta: Meta }) {
         editing={editing}
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditing(null); }}
+        channels={meta.channels}
       />
       <ConfirmDeleteModal
         open={deleteTarget !== null}

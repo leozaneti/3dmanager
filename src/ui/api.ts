@@ -13,6 +13,9 @@ export type Product = {
   weightGrams: number;
   printTimeMinutes: number;
   additionalCostCents: number;
+  minSalePriceCents?: number;
+  maxSalePriceCents?: number;
+  minNetReceivedCents?: number;
 };
 
 export type Settings = Record<string, { value: string; description: string }>;
