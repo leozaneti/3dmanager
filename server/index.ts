@@ -2019,7 +2019,7 @@ app.get("/api/finance/dre", (request) => {
     join order_statuses os on os.id = o.status_id
     join order_financials of on of.order_id = o.id
     left join (
-      select txo.order_id, sum(tx.amount_cents) as net
+      select txo.order_id, sum(case when tx.type = 'expense' then -tx.amount_cents else tx.amount_cents end) as net
       from transaction_orders txo
       join transactions tx on tx.id = txo.transaction_id
       group by txo.order_id
