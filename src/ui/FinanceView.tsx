@@ -202,10 +202,10 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
   const hasAutoCalc = txType === "income" && txOrderIds.length > 0;
   const autoValue = useQuery({
     queryKey: ["order-totals", [...txOrderIds].sort().join(",")],
-    queryFn: () => api<{ amountReceivedCents: number }>(`/orders/totals?ids=${txOrderIds.join(",")}`),
+    queryFn: () => api<{ grossRevenueCents: number; amountReceivedCents: number }>(`/orders/totals?ids=${txOrderIds.join(",")}`),
     enabled: hasAutoCalc,
   });
-  const autoAmountCents = autoValue.data?.amountReceivedCents ?? 0;
+  const autoAmountCents = autoValue.data?.grossRevenueCents ?? autoValue.data?.amountReceivedCents ?? 0;
   const autoLoading = hasAutoCalc && autoValue.isFetching;
   const effectiveAmount = hasAutoCalc && !txAmount && !autoLoading ? fromCents(autoAmountCents) : txAmount;
 
