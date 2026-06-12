@@ -224,7 +224,7 @@ export function previewMpCsv(text: string): MpPreviewData {
   }
   const warnings: MpPreviewWarning[] = [];
   const expectedStmt = db.prepare(`
-    select (products_amount_cents + shipping_customer_cents - platform_fee_cents - discount_cents - shipping_total_cents - other_costs_cents - packaging_cents - additional_costs_cents) as expected
+    select (products_amount_cents + shipping_customer_cents - shipping_total_cents - platform_fee_cents - other_costs_cents + discount_cents) as expected
     from order_financials where order_id = ?
   `);
   for (const [orderId, { received, externalId }] of orderIncome) {

@@ -128,6 +128,15 @@ resultadoVenda     = receitaBruta - taxaPlataforma - freteTotal - outrosCustos +
 ### RN15 – Embalagem como Custo Padrão
 - O custo de embalagem é lido da configuração `packaging_cost` e pré-preenchido em novos pedidos.
 
+### RN40 – Fórmula do Resultado da Venda
+```
+resultadoVenda = products_amount_cents + shipping_customer_cents
+               - shipping_total_cents - platform_fee_cents
+               - other_costs_cents + discount_cents
+```
+- Usado como `expected` no DRE e no preview de importação do MP.
+- Representa o valor líquido esperado após fretes e taxas da venda.
+
 ---
 
 ## 5. Importação (Mercado Livre / Extrato MP)
@@ -182,6 +191,14 @@ O cupom é armazenado em `other_costs_cents`.
 3. Sem match → transação criada como "Venda externa" (sem `transaction_orders`), entra em `otherIncome` no DRE
 4. O vínculo existe apenas para marcar o pedido como "realizado" — os valores do `order_financials` não são alterados
 
+### RN41 – Expected no Preview do Import MP
+- O preview compara `REAL_AMOUNT` (CSV) contra o **Resultado da Venda** do pedido:
+  ```
+  expected = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
+  ```
+- **ML**: `REAL_AMOUNT` já é o líquido → expected ≈ received
+- **Não-ML via MP**: `REAL_AMOUNT` é o valor bruto → divergência esperada (frete/taxas viram despesas separadas)
+
 ---
 
 ## 6. DRE (Demonstração de Resultados)
@@ -190,9 +207,9 @@ O cupom é armazenado em `other_costs_cents`.
 - **Realizado**: pedidos Entregues **com** ao menos uma transação de receita vinculada → receita = soma dos `amount_cents` dessas transações (o valor real que entrou na conta).
 - **A Realizar (estimado)**: pedidos Entregues **sem** transação de receita → receita estimada via `order_financials`:
   ```
-  receitaEstimada = amount_received_cents
+  receitaEstimada = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
   ```
-  Corresponde ao total líquido reportado pelo marketplace para a venda.
+  Corresponde ao **Resultado da Venda** (valor líquido após fretes, taxas e descontos).
 
 ### RN21 – Estrutura do DRE
 
@@ -214,14 +231,14 @@ O cupom é armazenado em `other_costs_cents`.
 ### RN22 – Alerta de Divergência
 - Para cada pedido com transação de receita, compara:
   ```
-  expected = amount_received_cents (order_financials)
+  expected = Resultado da Venda = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
   received = soma dos amount_cents das transactions income do pedido
   ```
 - Se `|received - expected| > max(R$1,00, 5% de expected)`, o DRE exibe um banner de alerta.
-- Divergências podem indicar:
-  - Settlement parcial (mais parcelas a receber)
-  - Estorno/reembolso não registrado como transação
-  - Erro no preenchimento do `order_financials`
+- A divergência esperada indica quanto falta lançar como despesas de frete/taxas:
+  - **ML**: income já vem líquido (≈ expected) → pouca ou nenhuma divergência
+  - **Não-ML**: income é o valor bruto → divergência = frete + taxas que viram despesas separadas
+  - **Manual**: mesma lógica do não-ML
 
 ### RN23 – Classificação de Transações
 - **income** (receita): Vendas, Estorno/Reembolso, Outras entradas

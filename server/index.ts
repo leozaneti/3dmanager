@@ -1998,7 +1998,7 @@ app.get("/api/finance/dre", (request) => {
   /* Pending: orders Entregue SEM income transaction → estimado via order_financials */
   const pending = (get(`
     select
-      coalesce(sum(of.amount_received_cents), 0) as revenueCents,
+      coalesce(sum(of.products_amount_cents + of.shipping_customer_cents - of.shipping_total_cents - of.platform_fee_cents - of.other_costs_cents + of.discount_cents), 0) as revenueCents,
       coalesce(sum(oi_sum.item_cost), 0) as itemsCostCents,
       coalesce(sum(of.packaging_cents), 0) as packagingCents,
       coalesce(sum(of.additional_costs_cents + of.other_costs_cents), 0) as additionalCostsCents,
@@ -2014,7 +2014,7 @@ app.get("/api/finance/dre", (request) => {
       o.id as orderId,
       coalesce(o.external_order_id, '') as externalId,
       coalesce(tx_sum.income, 0) as receivedCents,
-      of.amount_received_cents as expectedCents
+      (of.products_amount_cents + of.shipping_customer_cents - of.shipping_total_cents - of.platform_fee_cents - of.other_costs_cents + of.discount_cents) as expectedCents
     from orders o
     join order_statuses os on os.id = o.status_id
     join order_financials of on of.order_id = o.id
