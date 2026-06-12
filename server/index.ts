@@ -1858,6 +1858,9 @@ app.get("/api/transactions/:id", (request, reply) => {
 
 app.post("/api/transactions", async (request, reply) => {
   const data = transactionSchema.parse(request.body);
+  if (data.type === "income" && data.category === "Vendas" && data.orderIds.length === 0) {
+    reply.code(422); return { error: "Transação de venda precisa ter ao menos um pedido vinculado" };
+  }
   const result = db.prepare(
     "insert into transactions (date, type, category, description, amount_cents, cost_type, notes, account, external_tx_number) values (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null, data.account ?? null, data.externalTransactionNumber ?? null);
@@ -1876,6 +1879,9 @@ app.put("/api/transactions/:id", async (request, reply) => {
   const existing = get("select id from transactions where id = ?", [id]);
   if (!existing) { reply.code(404); return { error: "Transação não encontrada" }; }
   const data = transactionSchema.parse(request.body);
+  if (data.type === "income" && data.category === "Vendas" && data.orderIds.length === 0) {
+    reply.code(422); return { error: "Transação de venda precisa ter ao menos um pedido vinculado" };
+  }
   db.prepare(
     "update transactions set date = ?, type = ?, category = ?, description = ?, amount_cents = ?, cost_type = ?, notes = ?, account = ?, external_tx_number = ?, updated_at = current_timestamp where id = ?"
   ).run(data.date, data.type, data.category, data.description, data.amountCents, data.costType ?? null, data.notes ?? null, data.account ?? null, data.externalTransactionNumber ?? null, id);

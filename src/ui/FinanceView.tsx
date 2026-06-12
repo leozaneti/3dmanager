@@ -277,6 +277,8 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const linkError = txType === "income" && txCategory === "Vendas" && txOrderIds.length === 0;
+    if (linkError) return;
     const amountCents = hasAutoCalc && !txAmount
       ? autoAmountCents
       : Math.round(Number((txAmount ?? "0").replace(/\./g, "").replace(",", ".")) * 100);
@@ -535,6 +537,11 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
                 {txOrderIds.length > 0 && (
                   <div style={{ fontSize: 12, color: "#666", padding: "4px 0" }}>
                     {txOrderIds.length} pedido(s) vinculado(s)
+                  </div>
+                )}
+                {txType === "income" && txCategory === "Vendas" && txOrderIds.length === 0 && (
+                  <div style={{ fontSize: 12, color: "#dc2626", padding: "4px 0" }}>
+                    Vincule ao menos um pedido antes de salvar
                   </div>
                 )}
               </div>

@@ -247,6 +247,12 @@ O cupom é armazenado em `other_costs_cents`.
 - Despesas subclassificadas em `fixed` (fixas) e `variable` (variáveis)
 - Categorias pré-cadastradas são fixas, mas o usuário pode criar novas.
 
+### RN42 – Pedido Obrigatório em Transação de Venda
+- Toda transação do tipo `income` e categoria `Vendas` deve ter ao menos um pedido vinculado.
+- A validação ocorre no backend (POST/PUT `/api/transactions`) e no frontend (impede submit).
+- O MP import não passa pela API, então criações via CSV não são afetadas.
+- Casos sem match no MP viram "Venda externa" sem pedido, mas entram em `otherIncome` no DRE.
+
 ---
 
 ## 7. Dashboard & KPIs
