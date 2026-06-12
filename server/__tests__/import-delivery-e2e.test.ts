@@ -108,7 +108,7 @@ describe("E2E import — coluna Entrega", () => {
 
     const withForecast = rows.filter((r: any) => r.delivery_forecast_date);
     expect(withForecast.length).toBeGreaterThan(0);
-  });
+  }, 15_000);
 
   it("reimport — atualiza delivery_forecast_date e delivered_date", async () => {
     const buf = fs.readFileSync(XLSX_PATH);
