@@ -1175,6 +1175,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
     ...o,
     saleResultPct: o.totals?.grossRevenueCents ? ((o.totals?.saleResultCents ?? 0) / o.totals.grossRevenueCents) : 0,
     marginPct: o.totals?.grossRevenueCents ? ((o.totals?.profitCents ?? 0) / o.totals.grossRevenueCents) : 0,
+    deliverySort: o.deliveredDate || o.deliveryForecastDate || "",
   }));
   const activeOrderList = rawOrderList.filter((o) => o.statusId !== 6);
   const oSel = useSelection(orderList);
@@ -1355,7 +1356,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
                 <th className={`sortable ${sOrdBy === "salesChannelName" ? sOrdDir : ""}`} onClick={() => sOrdSort("salesChannelName")}>Canal</th>
                 <th className={`sortable ${sOrdBy === "customerName" ? sOrdDir : ""}`} onClick={() => sOrdSort("customerName")}>Cliente</th>
                 <th className={`sortable ${sOrdBy === "statusName" ? sOrdDir : ""}`} onClick={() => sOrdSort("statusName")}>Status</th>
-                <th style={{ fontSize: 11 }}>Entrega</th>
+                <th className={`sortable ${sOrdBy === "deliverySort" ? sOrdDir : ""}`} onClick={() => sOrdSort("deliverySort")} style={{ fontSize: 11 }}>Entrega</th>
                 <th>Produtos</th>
                 <th className={`sortable ${sOrdBy === "totals.grossRevenueCents" ? sOrdDir : ""}`} onClick={() => sOrdSort("totals.grossRevenueCents")}>Receita</th>
                 <th className={`sortable ${sOrdBy === "totals.saleResultCents" ? sOrdDir : ""}`} onClick={() => sOrdSort("totals.saleResultCents")}>Resultado Venda</th>
