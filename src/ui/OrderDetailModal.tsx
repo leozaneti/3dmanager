@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, money } from "./api";
+import { api, money, fmtDate } from "./api";
 import { type Customer } from "./api";
 import { CustomerDetailModal } from "./CustomerDetailModal";
 import { OrderFinancialSidebar } from "./OrderFinancialSidebar";
@@ -88,11 +88,11 @@ export function OrderDetailModal({ orderId, open, onClose, onEdit, onViewOrder }
             </div>
             <div className="detail-field">
               <label>Previsão de entrega</label>
-              <div className="detail-value">{order.deliveryForecastDate || "-"}</div>
+              <div className="detail-value">{fmtDate(order.deliveryForecastDate)}</div>
             </div>
             <div className="detail-field">
               <label>Data de entrega</label>
-              <div className="detail-value">{order.deliveredDate || "-"}</div>
+              <div className="detail-value">{fmtDate(order.deliveredDate)}</div>
             </div>
           </div>
           {order.notes && (

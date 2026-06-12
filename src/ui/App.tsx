@@ -1053,6 +1053,7 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterStore, setFilterStore] = useState("");
+  const [filterChannel, setFilterChannel] = useState("");
   const pageSize = 20;
   const params = new URLSearchParams();
   if (search) params.set("search", search);
@@ -1060,11 +1061,12 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
   if (filterFrom) params.set("from", filterFrom);
   if (filterTo) params.set("to", filterTo);
   if (filterStore) params.set("storeId", filterStore);
+  if (filterChannel) params.set("channelId", filterChannel);
   params.set("limit", String(pageSize));
   params.set("offset", String(page * pageSize));
   const qs = params.toString();
   const orders = useQuery({
-    queryKey: ["orders", search, filterStatus, filterFrom, filterTo, filterStore, page],
+    queryKey: ["orders", search, filterStatus, filterFrom, filterTo, filterStore, filterChannel, page],
     queryFn: () => api<OrdersResponse>(`/orders${qs ? `?${qs}` : ""}`)
   });
   const [orderBulkDeleteConfirm, setOrderBulkDeleteConfirm] = useState(false);
@@ -1312,9 +1314,13 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
           <span style={{ color: "#888" }}>até</span>
           <input type="date" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(0); }} style={{ width: 130 }} />
         </div>
-        <select value={filterStore} onChange={(e) => { setFilterStore(e.target.value); setPage(0); }} style={{ maxWidth: 160 }}>
+        <select value={filterStore} onChange={(e) => { setFilterStore(e.target.value); setPage(0); }} style={{ maxWidth: 140 }}>
           <option value="">Todas lojas</option>
           {meta.stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={filterChannel} onChange={(e) => { setFilterChannel(e.target.value); setPage(0); }} style={{ maxWidth: 140 }}>
+          <option value="">Todos canais</option>
+          {meta.channels.map((ch) => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
         </select>
         <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }} style={{ maxWidth: 130 }}>
           <option value="">Todos status</option>
@@ -1416,9 +1422,9 @@ function Orders({ meta, pendingOrderId, onConsumePendingOrder }: { meta: Meta; p
                   </td>
                   <td style={{ fontSize: 11, whiteSpace: "nowrap", color: "#6b7280" }}>
                     {order.deliveryForecastDate && !order.deliveredDate
-                      ? `📅 ${order.deliveryForecastDate.slice(5)}`
+                      ? `📅 ${order.deliveryForecastDate.slice(8,10)}/${order.deliveryForecastDate.slice(5,7)}`
                       : order.deliveredDate
-                      ? `✅ ${order.deliveredDate.slice(5)}`
+                      ? `✅ ${order.deliveredDate.slice(8,10)}/${order.deliveredDate.slice(5,7)}`
                       : "—"}
                   </td>
                   <td style={{ maxWidth: 220, fontSize: 12 }}>

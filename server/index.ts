@@ -970,6 +970,10 @@ function orderListWhere(query: Record<string, unknown>) {
     conditions.push("o.store_id = ?");
     params.push(Number(query.storeId));
   }
+  if (query.channelId) {
+    conditions.push("o.sales_channel_id = ?");
+    params.push(Number(query.channelId));
+  }
   if (query.from) {
     conditions.push("o.sale_date >= ?");
     params.push(String(query.from));
@@ -991,7 +995,7 @@ function orderListWhere(query: Record<string, unknown>) {
       " or o.status_description like ? or o.notes like ?" +
       " or exists (select 1 from order_items oi where oi.order_id = o.id and (oi.sku like ? or oi.listing_title like ?)))"
     );
-    params.push(s, s, s, s, s, s, s, s, s, s, s, s);
+    params.push(s, s, s, s, s, s, s, s, s, s, s, s, s);
   }
   return { where: conditions.length ? `where ${conditions.join(" and ")}` : "", params };
 }

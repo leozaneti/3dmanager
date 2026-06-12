@@ -114,3 +114,9 @@ export function toCents(value: FormDataEntryValue | null) {
 export function fromCents(cents?: number) {
   return ((cents ?? 0) / 100).toFixed(2).replace(".", ",");
 }
+
+export function fmtDate(iso: string) {
+  if (!iso) return "-";
+  const [y, m, d] = iso.split("T")[0].split("-");
+  return `${d}/${m}/${y}`;
+}

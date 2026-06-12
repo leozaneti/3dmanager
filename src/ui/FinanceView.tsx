@@ -207,6 +207,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
   });
   const autoAmountCents = autoValue.data?.amountReceivedCents ?? 0;
   const autoLoading = hasAutoCalc && autoValue.isFetching;
+  const effectiveAmount = hasAutoCalc && !txAmount && !autoLoading ? fromCents(autoAmountCents) : txAmount;
 
   const saveMutation = useMutation({
     mutationFn: ({ id, body }: { id?: number; body: any }) =>
@@ -274,7 +275,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const amountCents = hasAutoCalc
+    const amountCents = hasAutoCalc && !txAmount
       ? autoAmountCents
       : Math.round(Number((txAmount ?? "0").replace(/\./g, "").replace(",", ".")) * 100);
     const account = txAccount === "Outra" ? txCustomAccount : txAccount;
@@ -496,12 +497,11 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
               </div>
               <div className="order-field">
                 <label>Valor (R$)</label>
-                <input value={hasAutoCalc && !autoLoading ? fromCents(autoAmountCents) : txAmount}
+                <input value={effectiveAmount}
                        onChange={(e) => setTxAmount(e.target.value)}
-                       placeholder="0,00"
-                       disabled={hasAutoCalc} />
+                       placeholder="0,00" />
                 {autoLoading && <span style={{ fontSize: 11, color: "#888" }}>Calculando...</span>}
-                {hasAutoCalc && !autoLoading && <span style={{ fontSize: 11, color: "#888" }}>Calculado dos pedidos</span>}
+                {hasAutoCalc && !autoLoading && !txAmount && <span style={{ fontSize: 11, color: "#888" }}>Calculado dos pedidos</span>}
               </div>
               {txType === "expense" && (
                 <div className="order-field">
