@@ -157,7 +157,7 @@ export function previewMpCsv(text: string): MpPreviewData {
     if (isDispute && r.realAmount < 0) {
       const cents = Math.round(Math.abs(r.realAmount) * 100);
       const dedup = dedupKey(r.sourceId, cents, "expense");
-      if (dedupSet.has(dedup)) { skipped++; continue; }
+      if (dedupSet.has(dedup)) { duplicated++; continue; }
       const orderInfo = resolveOrder(r);
       const row: MpPreviewRow = {
         key: makeKey(r.sourceId, r.transactionDate),
