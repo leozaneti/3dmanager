@@ -294,6 +294,7 @@ app.post("/api/imports/preview", async (request, reply) => {
         of.products_amount_cents, of.shipping_total_cents, of.shipping_customer_cents,
         of.platform_fee_cents, of.discount_cents, of.other_costs_cents, of.amount_received_cents,
         of.packaging_cents,
+        o.delivery_forecast_date, o.delivered_date,
         (select count(*) from order_items where order_id = o.id) as item_count
         from orders o join order_financials of on of.order_id = o.id
         where o.external_order_id = ? and o.sales_channel_id = ?`, [key, salesChannelId]) as any;
@@ -335,6 +336,17 @@ app.post("/api/imports/preview", async (request, reply) => {
         const existingItemCount = (get("select count(*) as c from order_items where order_id = ?", [existing.id]) as any)?.c ?? 0;
         if (existingItemCount !== o.items.length) {
           changes.push({ field: "Itens", from: String(existingItemCount), to: String(o.items.length) });
+        }
+
+        const existingForecast = existing.delivery_forecast_date ?? null;
+        const newForecast = o.delivery?.sentDate || null;
+        if (existingForecast !== newForecast) {
+          changes.push({ field: "Previsão entrega", from: existingForecast || "—", to: newForecast || "—" });
+        }
+        const existingDelivered = existing.delivered_date || null;
+        const newDelivered = o.delivery?.deliveredDate || null;
+        if (existingDelivered !== newDelivered) {
+          changes.push({ field: "Data entrega", from: existingDelivered || "—", to: newDelivered || "—" });
         }
 
         if (changes.length === 0) {

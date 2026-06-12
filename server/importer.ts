@@ -176,6 +176,7 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
         },
         items: resolvedItems,
         notes: "",
+        delivery: { sentDate: order.delivery?.sentDate, deliveredDate: order.delivery?.deliveredDate },
       });
       if (changed) {
         updateExistingOrder(existingId, {
@@ -304,6 +305,7 @@ function hasOrderChanged(existingId: number, data: {
   financials: { productsRevenue: number; shippingFee: number; shippingRevenue: number; platformFee: number; discount: number; total: number; };
   items: ResolvedItem[];
   notes: string;
+  delivery?: { sentDate?: string; deliveredDate?: string };
 }): boolean {
   const current = single("select o.*, of.* from orders o join order_financials of on of.order_id = o.id where o.id = ?", [existingId]) as any;
   if (!current) return false;
@@ -348,6 +350,13 @@ function hasOrderChanged(existingId: number, data: {
     if (ci.sku !== ni.sku || ci.quantity !== ni.quantity || ci.sale_unit_price_cents !== ni.unitPrice) return true;
   }
 
+  // Check delivery
+  const del = data.delivery;
+  if (del) {
+    if ((del.sentDate ?? null) !== (current.delivery_forecast_date ?? null)) return true;
+    if ((del.deliveredDate ?? null) !== (current.delivered_date ?? null)) return true;
+  }
+
   return false;
 }
 
@@ -380,8 +389,8 @@ function updateExistingOrder(existingId: number, data: {
   const currentAdditional = isReturned ? 0 : (single("select additional_costs_cents from order_financials where order_id = ?", [existingId]) as any)?.additional_costs_cents ?? 0;
 
   const del = data.delivery;
-  db.prepare(`update orders set status_id = ?, status_description = ?, delivered_date = coalesce(?, delivered_date), updated_at = current_timestamp where id = ?`).run(
-    finalStatusId, data.statusDescription, del?.deliveredDate ?? null, existingId
+  db.prepare(`update orders set status_id = ?, status_description = ?, delivery_forecast_date = coalesce(?, delivery_forecast_date), delivered_date = coalesce(?, delivered_date), updated_at = current_timestamp where id = ?`).run(
+    finalStatusId, data.statusDescription, del?.sentDate ?? null, del?.deliveredDate ?? null, existingId
   );
 
   db.prepare(

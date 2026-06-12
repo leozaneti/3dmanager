@@ -154,7 +154,7 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
     const rowObj: ParsedRow = {};
     headers.forEach((header, i) => {
       const value = String(row[i] ?? "").trim();
-      if (header === "Unidades" && header in rowObj) return;
+      if (header in rowObj) return;
       rowObj[header] = value;
     });
 
@@ -420,10 +420,13 @@ function parseExcelDate(value: string | Date): string {
   if (isoMatch) return isoMatch[1];
   const brDate = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (brDate) return `${brDate[3]}-${brDate[2]}-${brDate[1]}`;
-  const brLong = text.match(/(\d{1,2})\s+de\s+(\S+)\s+de\s+(\d{4})/i);
+  const brLong = text.match(/(\d{1,2})\s+de\s+(\S+?)(?:\s+de\s+(\d{4}))?(?:\s*[|]\s*\d{2}:\d{2})?$/i);
   if (brLong) {
     const month = MONTHS_PT[brLong[2].toLowerCase()];
-    if (month) return `${brLong[3]}-${month}-${brLong[1].padStart(2, "0")}`;
+    if (month) {
+      const year = brLong[3] || new Date().getFullYear().toString();
+      return `${year}-${month}-${brLong[1].padStart(2, "0")}`;
+    }
   }
   const n = Number(text);
   if (Number.isFinite(n) && n > 40000 && n < 60000) {
