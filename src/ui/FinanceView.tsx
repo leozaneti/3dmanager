@@ -256,9 +256,11 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
     setTxCategory(tx.category);
     setTxDate(tx.date);
     setTxDescription(tx.description || "");
-    setTxAmount(((tx.amountCents ?? 0) / 100).toFixed(2).replace(".", ","));
     setTxCostType(tx.costType || "variable");
-    setTxOrderIds(tx.orders?.map((o: any) => o.id) ?? []);
+    const linkedOrderIds = tx.orders?.map((o: any) => o.id) ?? [];
+    setTxOrderIds(linkedOrderIds);
+    const willAutoCalc = tx.type === "income" && linkedOrderIds.length > 0;
+    setTxAmount(willAutoCalc ? "" : ((tx.amountCents ?? 0) / 100).toFixed(2).replace(".", ","));
     setOrderSearch("");
     setTxAccount(tx.account || "");
     setTxCustomAccount("");
