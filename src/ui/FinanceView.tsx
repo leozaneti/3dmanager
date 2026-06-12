@@ -176,12 +176,12 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
   const [newCatName, setNewCatName] = useState("");
   const [newCatType, setNewCatType] = useState<"income" | "expense">("expense");
 
-  const deliveredOrders = useQuery({
-    queryKey: ["orders-delivered"],
-    queryFn: () => api<any>(`/orders?limit=200&statusId=4`),
+  const linkableOrders = useQuery({
+    queryKey: ["orders-linkable"],
+    queryFn: () => api<any>(`/orders?limit=500`),
   });
 
-  const filteredOrders = (deliveredOrders.data?.data ?? []).filter((o: any) =>
+  const filteredOrders = (linkableOrders.data?.data ?? []).filter((o: any) =>
     orderSearch
       ? o.id.toString().includes(orderSearch)
         || o.externalOrderId?.includes(orderSearch)
@@ -516,9 +516,9 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
               )}
             </div>
           </div>
-          {txType === "income" && txCategory === "Vendas" && (
+          {(txType === "income" || txType === "expense") && (
             <div className="order-card">
-              <div className="order-card-title">Vincular pedidos entregues</div>
+              <div className="order-card-title">Vincular pedidos</div>
               <div className="finance-linked-orders-mock">
                 <input placeholder="Buscar por #ID ou nome do cliente..." value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} />
                 {filteredOrders.map((o: any) => {
