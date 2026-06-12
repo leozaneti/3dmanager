@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deleteDb } from "./helpers/setup.js";
 
 let db: any, migrate: any, parseMercadoLivreXlsx: any, importMercadoLivre: any;
 
-const XLSX_PATH = "/home/leonardo/Downloads/20260611_Vendas_BR_Mercado_Libre_y_Mercado_Shops_2026-06-11_20-21hs_3366121489.xlsx";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const XLSX_PATH = path.resolve(__dirname, "fixtures", "sample-vendas-ml.xlsx");
 
 beforeAll(async () => {
   deleteDb();
