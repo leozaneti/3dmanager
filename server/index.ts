@@ -2013,20 +2013,19 @@ app.get("/api/finance/dre", (request) => {
     select
       o.id as orderId,
       coalesce(o.external_order_id, '') as externalId,
-      coalesce(tx_sum.income, 0) as receivedCents,
+      coalesce(tx_sum.net, 0) as receivedCents,
       (of.products_amount_cents + of.shipping_customer_cents - of.shipping_total_cents - of.platform_fee_cents - of.other_costs_cents + of.discount_cents) as expectedCents
     from orders o
     join order_statuses os on os.id = o.status_id
     join order_financials of on of.order_id = o.id
     left join (
-      select txo.order_id, sum(tx.amount_cents) as income
+      select txo.order_id, sum(tx.amount_cents) as net
       from transaction_orders txo
       join transactions tx on tx.id = txo.transaction_id
-      where tx.type = 'income'
       group by txo.order_id
     ) tx_sum on tx_sum.order_id = o.id
     where os.name = 'Entregue'
-    and tx_sum.income is not null
+    and tx_sum.net is not null
   `).all() as any[]) ?? [];
 
   const warnings: { orderId: number; externalId: string; receivedCents: number; expectedCents: number; diffCents: number }[] = [];

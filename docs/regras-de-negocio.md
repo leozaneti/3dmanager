@@ -229,15 +229,15 @@ O cupom é armazenado em `other_costs_cents`.
 - `additional_costs_cents` e `other_costs_cents` entram como custo direto da venda.
 
 ### RN22 – Alerta de Divergência
-- Para cada pedido com transação de receita, compara:
+- Para cada pedido com transações vinculadas, compara:
   ```
   expected = Resultado da Venda = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
-  received = soma dos amount_cents das transactions income do pedido
+  received = soma líquida de todas as transações (income positivas + expense negativas) do pedido
   ```
 - Se `|received - expected| > max(R$1,00, 5% de expected)`, o DRE exibe um banner de alerta.
 - A divergência esperada indica quanto falta lançar como despesas de frete/taxas:
   - **ML**: income já vem líquido (≈ expected) → pouca ou nenhuma divergência
-  - **Não-ML**: income é o valor bruto → divergência = frete + taxas que viram despesas separadas
+  - **Não-ML**: income é o valor bruto, despesas são negativas → `income + expense = expected` sem divergência
   - **Manual**: mesma lógica do não-ML
 
 ### RN23 – Classificação de Transações
