@@ -2025,7 +2025,6 @@ app.get("/api/finance/dre", (request) => {
       group by txo.order_id
     ) tx_sum on tx_sum.order_id = o.id
     where os.name = 'Entregue'
-    and tx_sum.net is not null
   `).all() as any[]) ?? [];
 
   const warnings: { orderId: number; externalId: string; receivedCents: number; expectedCents: number; diffCents: number }[] = [];
