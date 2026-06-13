@@ -338,7 +338,7 @@ app.post("/api/imports/preview", async (request, reply) => {
           changes.push({ field: "Itens", from: String(existingItemCount), to: String(o.items.length) });
         }
 
-        const existingForecast = existing.delivery_forecast_date ?? null;
+        const existingForecast = existing.delivery_forecast_date || null;
         const newForecast = o.delivery?.sentDate || null;
         if (existingForecast !== newForecast) {
           changes.push({ field: "Previsão entrega", from: existingForecast || "—", to: newForecast || "—" });

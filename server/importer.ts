@@ -287,7 +287,7 @@ function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: num
   })();
   const additionalCostsCents = 0;
 
-  db.batch(`INSERT INTO orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) VALUES (${literal(storeId)}, ${literal(checkKey)}, ${literal(order.saleDate)}, ${literal(statusId)}, ${literal(order.statusDescription)}, ${literal(salesChannelId)}, ${literal(customerId)}, '', ${literal(order.delivery?.sentDate ?? null)}, ${literal(order.delivery?.deliveredDate ?? null)})`);
+  db.batch(`INSERT INTO orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) VALUES (${literal(storeId)}, ${literal(checkKey)}, ${literal(order.saleDate)}, ${literal(statusId)}, ${literal(order.statusDescription)}, ${literal(salesChannelId)}, ${literal(customerId)}, '', ${literal(order.delivery?.sentDate || null)}, ${literal(order.delivery?.deliveredDate || null)})`);
 
   db.batch(`DELETE FROM _oi`);
   db.batch(`INSERT INTO _oi SELECT last_insert_rowid()`);
@@ -353,8 +353,8 @@ function hasOrderChanged(existingId: number, data: {
   // Check delivery
   const del = data.delivery;
   if (del) {
-    if ((del.sentDate ?? null) !== (current.delivery_forecast_date ?? null)) return true;
-    if ((del.deliveredDate ?? null) !== (current.delivered_date ?? null)) return true;
+    if ((del.sentDate || null) !== (current.delivery_forecast_date || null)) return true;
+    if ((del.deliveredDate || null) !== (current.delivered_date || null)) return true;
   }
 
   return false;
@@ -390,7 +390,7 @@ function updateExistingOrder(existingId: number, data: {
 
   const del = data.delivery;
   db.prepare(`update orders set status_id = ?, status_description = ?, delivery_forecast_date = coalesce(?, delivery_forecast_date), delivered_date = coalesce(?, delivered_date), updated_at = current_timestamp where id = ?`).run(
-    finalStatusId, data.statusDescription, del?.sentDate ?? null, del?.deliveredDate ?? null, existingId
+    finalStatusId, data.statusDescription, del?.sentDate || null, del?.deliveredDate || null, existingId
   );
 
   db.prepare(
