@@ -118,7 +118,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
   const txFix = d?.transactions?.fixedExpenses ?? { total: 0, count: 0 };
   const txOther = d?.transactions?.otherIncome ?? { total: 0, count: 0 };
 
-  const dreWarnings = d?.warnings ?? { discrepantOrders: [], totalDiscrepancyCents: 0, totalDiscrepancyOrders: 0 };
+  const dreWarnings = d?.warnings ?? { discrepantOrders: [], totalDiscrepancyCents: 0, totalDiscrepancyOrders: 0, transactionsWithoutOrders: [] };
 
   function calcDreRow(real: Record<string, number>, pend: Record<string, number>) {
     const revenue = (real.revenueCents ?? 0) + (pend.revenueCents ?? 0);
@@ -402,6 +402,26 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
         </div>
         <Pagination page={page} pageSize={PAGE_SIZE} total={totalTx} onPageChange={setPage} itemLabel="movimentações" />
       </Panel>
+
+      {dreWarnings.transactionsWithoutOrders?.length > 0 && (
+        <Panel title="⚠️ Transações sem pedido">
+          <div className="alert warning" style={{ margin: 0 }}>
+            <span>
+              {dreWarnings.transactionsWithoutOrders.length} transação(ões) de Venda sem pedido vinculado.
+              {dreWarnings.transactionsWithoutOrders.slice(0, 5).map((t: any) => (
+                <div key={t.id} style={{ fontSize: "0.85em", marginTop: 4 }}>
+                  {t.date} — {t.description}: <strong>{money(t.amount_cents)}</strong>
+                </div>
+              ))}
+              {dreWarnings.transactionsWithoutOrders.length > 5 && (
+                <div style={{ fontSize: "0.85em", marginTop: 4, color: "#92400e" }}>
+                  +{dreWarnings.transactionsWithoutOrders.length - 5} outra(s)
+                </div>
+              )}
+            </span>
+          </div>
+        </Panel>
+      )}
 
       {dreWarnings.totalDiscrepancyOrders > 0 && (
         <Panel title="⚠️ Divergências detectadas">

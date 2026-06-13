@@ -2014,6 +2014,17 @@ app.get("/api/finance/dre", (request) => {
     and not exists (select 1 from transaction_orders txo join transactions tx on tx.id = txo.transaction_id where txo.order_id = o.id and tx.type = 'income')
   `, dateParams) as any) ?? {};
 
+  /* Warnings: transações Vendas sem pedido vinculado */
+  const orphanCond: string[] = ["t.type = 'income'", "t.category = 'Vendas'", "not exists (select 1 from transaction_orders txo where txo.transaction_id = t.id)"];
+  const orphanParams: unknown[] = [];
+  if (startDate) { orphanCond.push("date(t.date) >= date(?)"); orphanParams.push(startDate); }
+  if (endDate) { orphanCond.push("date(t.date) <= date(?)"); orphanParams.push(endDate); }
+  const transactionsWithoutOrders = (db.prepare(`
+    select t.id, t.date, t.description, t.amount_cents
+    from transactions t
+    where ${orphanCond.join(" and ")}
+  `).all(orphanParams) as any[]) ?? [];
+
   /* Warnings: discrepância entre recebido e esperado por pedido */
   const discrepantRows = (db.prepare(`
     select
@@ -2080,6 +2091,7 @@ app.get("/api/finance/dre", (request) => {
       discrepantOrders: warnings,
       totalDiscrepancyCents: warnings.reduce((s, w) => s + w.diffCents, 0),
       totalDiscrepancyOrders: warnings.length,
+      transactionsWithoutOrders,
     },
   };
 });
