@@ -20,7 +20,7 @@ export function mapStatus(status: string, description: string, map: Map<string, 
     return map.get("enviado") ?? defaultId;
   }
   if (combined.includes("produção") || combined.includes("producao") || combined.includes("preparando")) {
-    return map.get("enviado") ?? defaultId;
+    return map.get("novo") ?? defaultId;
   }
   return defaultId;
 }

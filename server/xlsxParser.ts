@@ -1,4 +1,5 @@
 import { read, utils } from "xlsx";
+import { getStatusId } from "./statusConfig.js";
 
 const HEADER_CANDIDATES = ["N.º de venda", "Pedido de compra", "Data da venda"];
 
@@ -101,18 +102,10 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
     return parseStatusFromText(s) !== "";
   }
 
-  const STATUS_LEVEL: Record<string, number> = {
-    "novo": 1,
-    "enviado": 2,
-    "entregue": 3,
-    "devolvido": 4,
-    "cancelado": 4,
-  };
-
   function getStatusLevel(status: string, description: string): number {
     const combined = `${status} ${description}`.toLowerCase();
     const parsed = parseStatusFromText(combined);
-    if (parsed) return STATUS_LEVEL[parsed.toLowerCase()] ?? 0;
+    if (parsed) return getStatusId(parsed.toLowerCase(), 0);
     return 0;
   }
 

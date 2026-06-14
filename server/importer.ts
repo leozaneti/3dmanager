@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { db, literal } from "./db.js";
 import type { ParsedOrder } from "./xlsxParser.js";
 import { normalize, mapStatus } from "./importShared.js";
+import { isDevolvido, getStatusId } from "./statusConfig.js";
 
 export type ImportResult = {
   importedOrders: number;
@@ -234,9 +235,9 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
         shipping_customer_cents = 0, platform_fee_cents = 0,
         discount_cents = 0, other_costs_cents = 0, amount_received_cents = 0,
         packaging_cents = 0, additional_costs_cents = 0
-      WHERE order_id IN (SELECT id FROM orders WHERE status_id = 6)`);
+      WHERE order_id IN (SELECT id FROM orders WHERE status_id = ${getStatusId("devolvido")})`);
       db.exec(`UPDATE order_items SET cost_unit_cents = 0
-        WHERE order_id IN (SELECT id FROM orders WHERE status_id = 6)`);
+        WHERE order_id IN (SELECT id FROM orders WHERE status_id = ${getStatusId("devolvido")})`);
 
       importedOrders = resolvedOrders.length;
     } catch (error) {
@@ -267,7 +268,7 @@ function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: num
   const { order, customerId, checkKey, items } = ro;
 
   /* Se devolvido, todos os valores financeiros são zero */
-  const isReturned = statusId === 6;
+  const isReturned = isDevolvido(statusId);
   const debugLine = `[buildOrderBatch] checkKey=${checkKey} statusId=${statusId} isReturned=${isReturned} productsRevenue=${order.financials.productsRevenue}\n`;
   fs.appendFileSync("/tmp/importer_debug.txt", debugLine);
   const productsRevenue = isReturned ? 0 : order.financials.productsRevenue;
@@ -315,7 +316,7 @@ function hasOrderChanged(existingId: number, data: {
   if (String(current.status_description ?? "") !== data.statusDescription) return true;
 
   // For returned orders, expected financials are zeroed
-  const isReturned = data.statusId === 6;
+  const isReturned = isDevolvido(data.statusId);
   const expectedProducts = isReturned ? 0 : data.financials.productsRevenue;
   const expectedShippingTotal = isReturned ? 0 : Math.abs(data.financials.shippingFee);
   const expectedShippingCustomer = isReturned ? 0 : data.financials.shippingRevenue;
@@ -373,7 +374,7 @@ function updateExistingOrder(existingId: number, data: {
   const oldStatusName = single("select name from order_statuses where id = ?", [currentStatusId]) as any;
   const newStatusName = single("select name from order_statuses where id = ?", [data.statusId]) as any;
 
-  const isReturned = finalStatusId === 6;
+  const isReturned = isDevolvido(finalStatusId);
   const productsRevenue = isReturned ? 0 : data.financials.productsRevenue;
   const shippingTotalCents = isReturned ? 0 : Math.abs(data.financials.shippingFee);
   const shippingCustomerCents = isReturned ? 0 : data.financials.shippingRevenue;

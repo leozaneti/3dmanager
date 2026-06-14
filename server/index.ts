@@ -15,6 +15,7 @@ import { previewMpCsv, confirmMpImport } from "./importerMp.js";
 import { hashPassword, verifyPassword, createSession, deleteSession, validateSession, clearExpiredSessions } from "./auth.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { mapStatus } from "./importShared.js";
+import { STATUS_TRANSITIONS, loadStatuses, getStatusId, isDevolvido, isValidStatusId, resolveTransitions, getStatusName } from "./statusConfig.js";
 
 const app = Fastify({ logger: true });
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
@@ -52,6 +53,7 @@ if (fs.existsSync(frontendDir)) {
 }
 
 migrate();
+loadStatuses();
 
 clearExpiredSessions();
 setInterval(clearExpiredSessions, 60 * 60 * 1000);
@@ -186,7 +188,10 @@ const orderSchema = z.object({
   storeId: z.coerce.number().int().positive(),
   externalOrderId: z.string().optional().default(""),
   saleDate: z.string().min(1),
-  statusId: z.coerce.number().int().positive(),
+  statusId: z.coerce.number().int().positive().refine(
+    id => isValidStatusId(id),
+    { message: "statusId inválido: deve corresponder a um status ativo" }
+  ),
   statusDescription: z.string().optional().default(""),
   salesChannelId: z.coerce.number().int().positive(),
   customerId: optionalId,
@@ -949,7 +954,7 @@ app.get("/api/customers/:id/summary", (request, reply) => {
     [id]
   ).map((row) => ({ ...row, totals: calculateOrderTotals(row) }));
 
-  const activeOrders = orders.filter((o) => o.statusId !== 6);
+  const activeOrders = orders.filter((o) => !isDevolvido(o.statusId));
   const totalOrders = activeOrders.length;
   const totalRevenueCents = activeOrders.reduce((s, o) => s + o.productsAmountCents, 0);
   const totalProfitCents = activeOrders.reduce((s, o) => s + o.totals.profitCents, 0);
@@ -1021,7 +1026,7 @@ app.get("/api/orders", (request) => {
       join order_statuses os on os.id = o.status_id
       join sales_channels sc on sc.id = o.sales_channel_id
       left join customers c on c.id = o.customer_id
-      ${where}${where ? " and" : "where"} o.status_id != 6
+      ${where}${where ? " and" : "where"} o.status_id != ${getStatusId("devolvido")}
       group by o.id)`,
     params
   ) as any)?.c ?? 0;
@@ -1083,7 +1088,7 @@ app.get("/api/orders", (request) => {
       join order_statuses os on os.id = o.status_id
       join sales_channels sc on sc.id = o.sales_channel_id
       left join customers c on c.id = o.customer_id
-      ${where}${where ? " and" : "where"} o.status_id != 6
+      ${where}${where ? " and" : "where"} o.status_id != ${getStatusId("devolvido")}
       group by o.id)`,
     params
   ) as any)?.c ?? 0;
@@ -1249,21 +1254,17 @@ app.put("/api/orders/:id", async (request, reply) => {
   return { id };
 });
 
-const STATUS_TRANSITIONS: Record<number, number[]> = {
-  1: [3, 5, 6],
-  3: [4, 5, 6],
-  4: [6],
-  5: [],
-  6: [],
-};
-
 app.get("/api/status-transitions", () => {
   const statuses = db.prepare("select id, name from order_statuses where active = 1 order by sort_order").all([]) as { id: number; name: string }[];
-  const statusNames = new Map(statuses.map(s => [s.id, s.name]));
   const transitions: Record<number, { id: number; name: string }[]> = {};
-  for (const [fromId, toIds] of Object.entries(STATUS_TRANSITIONS)) {
-    const from = Number(fromId);
-    transitions[from] = toIds.map(toId => ({ id: toId, name: statusNames.get(toId) ?? String(toId) }));
+  for (const s of statuses) {
+    const name = s.name.toLowerCase();
+    const allowedNames = (STATUS_TRANSITIONS as Record<string, string[]>)[name];
+    if (allowedNames) {
+      transitions[s.id] = allowedNames.map(n => ({ id: getStatusId(n), name: getStatusName(getStatusId(n)) }));
+    } else {
+      transitions[s.id] = [];
+    }
   }
   return transitions;
 });
@@ -1277,7 +1278,7 @@ app.put("/api/orders/:id/status", async (request, reply) => {
     return { error: "Pedido não encontrado" };
   }
   const currentId = (order as any).status_id;
-  const allowed = STATUS_TRANSITIONS[currentId] ?? [];
+  const allowed = resolveTransitions(currentId);
   if (!allowed.includes(statusId)) {
     reply.code(400);
     return { error: "Transição de status inválida" };
@@ -1286,7 +1287,7 @@ app.put("/api/orders/:id/status", async (request, reply) => {
   db.prepare("update orders set status_id = ?, updated_at = current_timestamp where id = ?").run(statusId, id);
 
   /* Auto-estorno para Mercado Livre ao marcar como Devolvido */
-  if (statusId === 6) {
+  if (isDevolvido(statusId)) {
     const channel = get("select name from sales_channels where id = ?", [(order as any).sales_channel_id]) as any;
     if (channel?.name === "Mercado Livre") {
       db.prepare(`update order_financials set
@@ -1336,7 +1337,7 @@ function getDefaultGroupBy(startDate: string, endDate: string): "day" | "week" |
 }
 
 function dashboardTotals(conditions: string[], params: unknown[]) {
-  const filters = ["o.status_id != 6", ...conditions];
+  const filters = [`o.status_id != ${getStatusId("devolvido")}`, ...conditions];
   const where = filters.length ? "where " + filters.join(" and ") : "";
   const rows = all(
     `select
@@ -1409,7 +1410,7 @@ app.get("/api/dashboard", (request) => {
     params.push(storeId);
   }
 
-  const dashboardConditions = ["o.status_id != 6", ...conditions];
+  const dashboardConditions = [`o.status_id != ${getStatusId("devolvido")}`, ...conditions];
   const whereClause = dashboardConditions.length ? "where " + dashboardConditions.join(" and ") : "";
 
   const { rows: orderRows, totals } = dashboardTotals(conditions, params);
