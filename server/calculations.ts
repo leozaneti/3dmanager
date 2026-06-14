@@ -1,5 +1,3 @@
-// ATENÇÃO: Fórmula duplicada em src/ui/finance.ts (calculateKpisFromTotals).
-// Mantenha os dois arquivos em sincronia ao alterar a lógica financeira.
 type OrderTotalsInput = {
   productsAmountCents: number;
   shippingTotalCents: number;

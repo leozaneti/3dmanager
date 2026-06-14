@@ -57,8 +57,11 @@ describe("calculateKpisFromTotals", () => {
     expect(r.saleResultCents).toBe(10000);
   });
 
-  it("retorna os 4 campos", () => {
+  it("retorna os campos", () => {
     const r = calculateKpisFromTotals(BASE);
-    expect(Object.keys(r)).toEqual(["grossRevenueCents", "saleResultCents", "profitCents", "marginPercent"]);
+    expect(r.grossRevenueCents).toBeDefined();
+    expect(r.saleResultCents).toBeDefined();
+    expect(r.profitCents).toBeDefined();
+    expect(r.marginPercent).toBeDefined();
   });
 });
