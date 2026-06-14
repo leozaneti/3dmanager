@@ -1,7 +1,7 @@
 # Regras de Negócio — 3D Manager
 
 > Sistema de gestão para e-commerce de impressão 3D.
-> Versão: 0.2.0 | Última atualização: 09/06/2026
+> Versão: 0.3.0 | Última atualização: 14/06/2026
 
 ---
 
@@ -26,30 +26,37 @@
 
 ### RN01 – Ciclo de Vida do Pedido
 ```
-Novo (1) → Produção (2) → Enviado (3) → Entregue (4)
-                                              ↓
-                                       Devolvido (6)
+Novo → Enviado → Entregue
+                      ↓
+               Devolvido
 
-Cancelado (5) e Devolvido (6) são estados terminais.
+Cancelado e Devolvido são estados terminais.
 ```
+
+> **Nota:** Os IDs dos status são dinâmicos (definidos pelo banco).
+> Consulte `server/statusConfig.ts` e a tabela `order_statuses` para valores vigentes.
+> O status "Produção" foi removido — pedidos que estavam nesse status foram
+> rebaixados para "Novo".
 
 ### RN02 – Transições de Status Válidas
 
-```
-1 (Novo)       → [2 (Produção), 5 (Cancelado), 6 (Devolvido)]
-2 (Produção)   → [3 (Enviado), 5 (Cancelado), 6 (Devolvido)]
-3 (Enviado)    → [4 (Entregue), 5 (Cancelado), 6 (Devolvido)]
-4 (Entregue)   → [6 (Devolvido)]
-5 (Cancelado)  → [] (terminal)
-6 (Devolvido)  → [] (terminal)
-```
+As transições são definidas por **nome** do status (não por ID numérico)
+em `server/statusConfig.ts:STATUS_TRANSITIONS`:
+
+| De | Para |
+|----|------|
+| Novo | Enviado, Cancelado, Devolvido |
+| Enviado | Entregue, Cancelado, Devolvido |
+| Entregue | Devolvido |
+| Cancelado | (terminal) |
+| Devolvido | (terminal) |
 
 ### RN03 – Unicidade de Pedido Externo
 - `external_order_id` é único por par `(store_id, sales_channel_id)`.
 - Se preenchido, não pode haver outro pedido com o mesmo valor na mesma loja + canal.
 
 ### RN04 – Auto-Estorno (Mercado Livre)
-- Ao marcar um pedido do canal **Mercado Livre** como **Devolvido (6)**, todos os valores financeiros são zerados:
+- Ao marcar um pedido do canal **Mercado Livre** como **Devolvido**, todos os valores financeiros são zerados:
   - `products_amount_cents = 0`
   - `shipping_total_cents = 0`
   - `shipping_customer_cents = 0`
@@ -128,17 +135,6 @@ resultadoVenda     = receitaBruta - taxaPlataforma - freteTotal - outrosCustos +
 ### RN15 – Embalagem como Custo Padrão
 - O custo de embalagem é lido da configuração `packaging_cost` e pré-preenchido em novos pedidos.
 
-### RN40 – Fórmula do Resultado da Venda
-```
-resultadoVenda = products_amount_cents + shipping_customer_cents
-               - shipping_total_cents - platform_fee_cents
-               - other_costs_cents + discount_cents
-```
-- Usado como `expected` no DRE e no preview de importação do MP.
-- Representa o valor líquido esperado após fretes e taxas da venda.
-
----
-
 ## 5. Importação (Mercado Livre / Extrato MP)
 
 ### RN16 – Fluxo em Duas Fases
@@ -152,7 +148,7 @@ resultadoVenda = products_amount_cents + shipping_customer_cents
 | "cancelado" / "cancelada" | Cancelado |
 | "entregue" | Entregue |
 | "enviado" / "a caminho" / "tentaremos" / "não" + "entrega" | Enviado |
-| "produção" / "preparando" | Produção |
+| "produção" / "preparando" | Novo (status removido, rebaixado para Novo) |
 | *outros* | Novo (default) |
 
 ### RN18 – Pacote de Diversos (Bundle)
@@ -192,10 +188,7 @@ O cupom é armazenado em `other_costs_cents`.
 4. O vínculo existe apenas para marcar o pedido como "realizado" — os valores do `order_financials` não são alterados
 
 ### RN41 – Expected no Preview do Import MP
-- O preview compara `REAL_AMOUNT` (CSV) contra o **Resultado da Venda** do pedido:
-  ```
-  expected = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
-  ```
+- O preview compara `REAL_AMOUNT` (CSV) contra o **Resultado da Venda** do pedido (vide RN14).
 - **ML**: `REAL_AMOUNT` já é o líquido → expected ≈ received
 - **Não-ML via MP**: `REAL_AMOUNT` é o valor bruto → divergência esperada (frete/taxas viram despesas separadas)
 
@@ -228,7 +221,7 @@ O cupom é armazenado em `other_costs_cents`.
 - **Não** há mais linha de "Deduções variáveis (taxas, fretes, descontos)" — esses valores já são descontados na fonte pelo Mercado Pago, e o SETTLEMENT já reflete o líquido recebido.
 - `additional_costs_cents` e `other_costs_cents` entram como custo direto da venda.
 
-### RN22 – Alerta de Divergência
+### RN42 – Alerta de Divergência
 - Para todos os pedidos Entregues, compara:
   ```
   expected = Resultado da Venda = products + shipping_customer - shipping_total - plataforma - outros_custos + desconto
@@ -241,7 +234,7 @@ O cupom é armazenado em `other_costs_cents`.
   - **Não-ML**: income é bruto + despesas negativas → `income + expense = expected` sem divergência
   - **Manual**: mesma lógica do não-ML
 
-### RN23 – Classificação de Transações
+### RN43 – Classificação de Transações
 - **income** (receita): Vendas, Estorno/Reembolso, Outras entradas
 - **expense** (despesa): Impostos, Insumos, Energia, Marketing, Outros custos
 - Despesas subclassificadas em `fixed` (fixas) e `variable` (variáveis)
@@ -259,7 +252,7 @@ O cupom é armazenado em `other_costs_cents`.
 
 ### RN22 – Filtro Padrão
 - Se nenhum período é informado, o dashboard filtra pelo mês corrente (`date('now', 'start of month')`).
-- Pedidos com status **Devolvido (6)** são sempre excluídos dos totais do dashboard.
+- Pedidos com status **Devolvido** são sempre excluídos dos totais do dashboard.
 
 ### RN23 – Agrupamento Temporal (Auto)
 | Período | Agrupamento |

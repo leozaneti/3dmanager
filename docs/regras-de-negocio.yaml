@@ -3,9 +3,9 @@
 
 metadata:
   sistema: "3D Manager"
-  versao: "0.1.0"
+  versao: "0.2.0"
   descricao: "Sistema de gestão para e-commerce de impressão 3D"
-  ultima_atualizacao: "2026-06-09"
+  ultima_atualizacao: "2026-06-14"
 
 regras:
 
@@ -17,28 +17,29 @@ regras:
     dominio: "Pedidos"
     titulo: "Ciclo de Vida do Pedido"
     descricao: >
-      O pedido percorre os status: Novo → Produção → Enviado → Entregue.
+      O pedido percorre os status: Novo → Enviado → Entregue.
       Cancelado e Devolvido são estados terminais.
+      Status "Produção" removido — pedidos rebaixados para Novo.
     fluxo:
-      - "Novo (1)"
-      - "Produção (2)"
-      - "Enviado (3)"
-      - "Entregue (4)"
-    estados_terminal: [5, 6]
+      - "Novo"
+      - "Enviado"
+      - "Entregue"
+    estados_terminal: ["Cancelado", "Devolvido"]
+    nota: "IDs de status são dinâmicos. Consulte server/statusConfig.ts"
 
   - id: RN02
     dominio: "Pedidos"
     titulo: "Transições de Status Válidas"
     descricao: "Cada status só pode transitar para um conjunto específico de próximos status."
-    transicoes:
-      1: [2, 5, 6]   # Novo → Produção, Cancelado, Devolvido
-      2: [3, 5, 6]   # Produção → Enviado, Cancelado, Devolvido
-      3: [4, 5, 6]   # Enviado → Entregue, Cancelado, Devolvido
-      4: [6]         # Entregue → Devolvido
-      5: []          # Cancelado → (terminal)
-      6: []          # Devolvido → (terminal)
-    fonte: "server/importShared.ts"
+    transicoes_por_nome:
+      Novo: [Enviado, Cancelado, Devolvido]
+      Enviado: [Entregue, Cancelado, Devolvido]
+      Entregue: [Devolvido]
+      Cancelado: []
+      Devolvido: []
+    fonte: "server/statusConfig.ts"
     validacao_servidor: true
+    nota: "IDs são resolvidos dinamicamente via getStatusId()"
 
   - id: RN03
     dominio: "Pedidos"
@@ -57,7 +58,7 @@ regras:
       Ao marcar um pedido do canal Mercado Livre como Devolvido, todos os
       valores financeiros e custos de itens são zerados automaticamente.
     canal: "Mercado Livre"
-    gatilho: "status_id = 6"
+    gatilho: "isDevolvido(status_id)"
     acoes:
       - "Zerar order_financials (todos os campos)"
       - "Zerar cost_unit_cents em order_items"
@@ -204,26 +205,23 @@ regras:
   - id: RN17
     dominio: "Importação"
     titulo: "Mapeamento de Status ML → Interno"
-    descricao: "Converte o texto de status do Mercado Livre para os IDs internos."
+    descricao: >
+      Converte o texto de status do Mercado Livre para os nomes de status internos.
+      Os IDs são resolvidos dinamicamente via statusConfig.ts.
     mapa:
       - texto: "devolvido|devolucao"
         status: "Devolvido"
-        id: 6
       - texto: "cancelado|cancelada"
         status: "Cancelado"
-        id: 5
       - texto: "entregue"
         status: "Entregue"
-        id: 4
       - texto: "enviado|a caminho|tentaremos|nao.*entrega"
         status: "Enviado"
-        id: 3
       - texto: "producao|preparando"
-        status: "Produção"
-        id: 2
+        status: "Novo"
+        nota: "Status Produção removido — rebaixado para Novo"
       - texto: "outros"
         status: "Novo"
-        id: 1
     fonte: "server/importShared.ts:mapStatus"
 
   - id: RN18
@@ -324,7 +322,7 @@ regras:
       - "(+) Outras receitas"
       - "= RESULTADO LÍQUIDO"
 
-  - id: RN22
+  - id: RN42
     dominio: "DRE"
     titulo: "Alerta de Divergência"
     descricao: >
@@ -337,7 +335,7 @@ regras:
       - "Estorno/reembolso não registrado"
       - "Erro no preenchimento do order_financials"
 
-  - id: RN23
+  - id: RN43
     dominio: "DRE"
     titulo: "Classificação de Transações"
     descricao: "Receitas e despesas são categorizadas para composição do DRE."
@@ -369,7 +367,7 @@ regras:
     titulo: "Filtro Padrão e Exclusão de Devolvidos"
     descricao: "Se nenhum período informado, usa mês corrente. Devolvidos são excluídos."
     filtro_padrao: "date('now', 'start of month')"
-    exclusao: "status_id = 6 (Devolvido)"
+    exclusao: "isDevolvido(status_id) — resolvido dinamicamente"
 
   - id: RN23
     dominio: "Dashboard"
