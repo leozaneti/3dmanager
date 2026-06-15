@@ -37,12 +37,23 @@ function useSort<T>(data: T[], defaultSort: string) {
   return { sorted, sortBy, sortDir, handleSort };
 }
 
-function KpiCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+function KpiCard({ label, value, sub, compare, loading }: { label: string; value: string | number; sub?: string; compare?: { current: number; previous: number } | null; loading?: boolean }) {
+  function pctChangeText(cur: number, prev: number) {
+    if (!prev || prev === 0) return null;
+    const diff = ((cur - prev) / prev) * 100;
+    return { text: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%`, dir: diff >= 0 ? "up" : "down" };
+  }
+  const comp = compare && compare.previous ? pctChangeText(compare.current, compare.previous) : null;
   return (
     <div className="kpi-card">
       <span className="kpi-label">{label}</span>
-      <strong className="kpi-value">{value}</strong>
+      <strong className="kpi-value">{loading ? "..." : value}</strong>
       {sub && <span className="kpi-sub">{sub}</span>}
+      {comp && (
+        <span className={`kpi-compare ${comp.dir}`}>
+          {comp.dir === "up" ? "▲" : "▼"} {comp.text} <span className="sub">vs período anterior</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -74,6 +85,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
     else if (label === "7D") { const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); setStartDate(d.toISOString().split("T")[0]); setEndDate(today); }
     else if (label === "30D") { setStartDate(thirtyDaysAgo); setEndDate(today); }
     else if (label === "Este mês") { setStartDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]); setEndDate(today); }
+    else if (label === "Mês passado") { const y = now.getFullYear(), m = now.getMonth(); const lastMonthStart = new Date(y, m - 1, 1); const lastMonthEnd = new Date(y, m, 0); setStartDate(lastMonthStart.toISOString().split("T")[0]); setEndDate(lastMonthEnd.toISOString().split("T")[0]); }
     else if (label === "Todo período") { setStartDate(""); setEndDate(""); }
     setPage(0);
   }
@@ -106,8 +118,32 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
     queryFn: () => api<{ data: { id: number; name: string; type: string; color: string }[] }>("/finance/categories"),
   });
 
-  const incomeCents = (transactions.data?.data ?? []).filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + t.amountCents, 0);
-  const expenseCents = (transactions.data?.data ?? []).filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + t.amountCents, 0);
+  const periodTotals = useQuery({
+    queryKey: ["finance-totals", startDate || "", endDate || ""],
+    queryFn: () => api<{ incomeCents: number; expenseCents: number }>(`/finance/totals?startDate=${startDate || ""}&endDate=${endDate || ""}`),
+  });
+
+  function getPrevPeriod(s: string, e: string) {
+    if (!s || !e) return { prevStart: "", prevEnd: "" };
+    const days = Math.round((new Date(e).getTime() - new Date(s).getTime()) / 86400000);
+    if (days <= 0) return { prevStart: "", prevEnd: "" };
+    return {
+      prevStart: new Date(new Date(s).getTime() - days * 86400000).toISOString().split("T")[0],
+      prevEnd: new Date(new Date(e).getTime() - days * 86400000).toISOString().split("T")[0],
+    };
+  }
+  const { prevStart, prevEnd } = getPrevPeriod(startDate, endDate);
+
+  const prevPeriodTotals = useQuery({
+    queryKey: ["finance-totals", prevStart, prevEnd],
+    queryFn: () => api<{ incomeCents: number; expenseCents: number }>(`/finance/totals?startDate=${prevStart}&endDate=${prevEnd}`),
+    enabled: !!prevStart && !!prevEnd,
+  });
+
+  const incomeCents = periodTotals.data?.incomeCents ?? 0;
+  const expenseCents = periodTotals.data?.expenseCents ?? 0;
+  const prevIncomeCents = prevPeriodTotals.data?.incomeCents ?? 0;
+  const prevExpenseCents = prevPeriodTotals.data?.expenseCents ?? 0;
   const openingBalanceCents = openingBalance.data?.openingBalanceCents ?? 520000;
   const balanceCents = openingBalanceCents + incomeCents - expenseCents;
 
@@ -307,9 +343,15 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
 
       <section className="kpi-section">
         <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <KpiCard label="Saldo atual" value={money(balanceCents)} sub="Saldo inicial + movimentações" />
-          <KpiCard label="Entradas" value={money(incomeCents)} sub="No período selecionado" />
-          <KpiCard label="Saídas" value={money(expenseCents)} sub="No período selecionado" />
+          <KpiCard label="Saldo atual" value={money(balanceCents)} sub="Saldo inicial + movimentações"
+            loading={periodTotals.isFetching}
+            compare={{ current: incomeCents - expenseCents, previous: prevIncomeCents - prevExpenseCents }} />
+          <KpiCard label="Entradas" value={money(incomeCents)} sub="No período selecionado"
+            loading={periodTotals.isFetching}
+            compare={{ current: incomeCents, previous: prevIncomeCents }} />
+          <KpiCard label="Saídas" value={money(expenseCents)} sub="No período selecionado"
+            loading={periodTotals.isFetching}
+            compare={{ current: expenseCents, previous: prevExpenseCents }} />
         </div>
       </section>
 
@@ -319,6 +361,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
           <button type="button" onClick={() => setPreset("7D")}>7D</button>
           <button type="button" onClick={() => setPreset("30D")}>30D</button>
           <button type="button" onClick={() => setPreset("Este mês")}>Este mês</button>
+          <button type="button" onClick={() => setPreset("Mês passado")}>Mês passado</button>
           <button type="button" onClick={() => setPreset("Todo período")}>Todo período</button>
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <span style={{ color: "#888" }}>até</span>

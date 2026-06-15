@@ -2104,6 +2104,25 @@ app.get("/api/finance/dre", (request) => {
   };
 });
 
+app.get("/api/finance/totals", (request) => {
+  const query = request.query as Record<string, unknown>;
+  const startDate = query.startDate ? String(query.startDate) : null;
+  const endDate = query.endDate ? String(query.endDate) : null;
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (startDate) { conditions.push("date(t.date) >= date(?)"); params.push(startDate); }
+  if (endDate) { conditions.push("date(t.date) <= date(?)"); params.push(endDate); }
+  const where = conditions.length ? "where " + conditions.join(" and ") : "";
+  const row = get(
+    `select
+       coalesce(sum(case when t.type = 'income' then t.amount_cents else 0 end), 0) as incomeCents,
+       coalesce(sum(case when t.type = 'expense' then t.amount_cents else 0 end), 0) as expenseCents
+     from transactions t ${where}`,
+    params
+  ) as any;
+  return { incomeCents: row?.incomeCents ?? 0, expenseCents: row?.expenseCents ?? 0 };
+});
+
 app.get("/api/import-log", (request) => {
   const query = request.query as Record<string, unknown>;
   const limit = query.limit ? Number(query.limit) : 20;
