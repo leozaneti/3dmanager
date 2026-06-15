@@ -1076,6 +1076,10 @@ app.get("/api/orders", (request) => {
       coalesce(sum(of.additional_costs_cents), 0) as additionalCostsCents,
       coalesce(sum(oi_sum.item_cost), 0) as itemsCostCents
     from orders o
+    join stores s on s.id = o.store_id
+    join order_statuses os on os.id = o.status_id
+    join sales_channels sc on sc.id = o.sales_channel_id
+    left join customers c on c.id = o.customer_id
     join order_financials of on of.order_id = o.id
     left join (select order_id, sum(quantity * cost_unit_cents) as item_cost from order_items group by order_id) oi_sum on oi_sum.order_id = o.id
     ${where}`,
@@ -1096,7 +1100,10 @@ app.get("/api/orders", (request) => {
   const statusCounts = all(
     `select os.id, os.name, count(*) as count
      from orders o
+     join stores s on s.id = o.store_id
      join order_statuses os on os.id = o.status_id
+     join sales_channels sc on sc.id = o.sales_channel_id
+     left join customers c on c.id = o.customer_id
      ${where}
      group by o.status_id
      order by os.id`,
