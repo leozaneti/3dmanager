@@ -351,6 +351,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
             <thead>
               <tr>
                 <th className={`sortable ${sTxBy === "date" ? sTxDir : ""}`} onClick={() => sTxSort("date")}>Data</th>
+                <th>Tipo</th>
                 <th className={`sortable ${sTxBy === "description" ? sTxDir : ""}`} onClick={() => sTxSort("description")}>Descrição</th>
                 <th className={`sortable ${sTxBy === "category" ? sTxDir : ""}`} onClick={() => sTxSort("category")}>Categoria</th>
                 <th className={`sortable ${sTxBy === "account" ? sTxDir : ""}`} onClick={() => sTxSort("account")} style={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }}>Conta</th>
@@ -365,9 +366,9 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
               {sortedTxs.map((t: any) => (
                 <tr key={t.id}>
                     <td style={{ whiteSpace: "nowrap" }}>{fmtDate(t.date)}</td>
+                    <td><span className={`tag ${t.type === "income" ? "tag-green" : "tag-red"}`}>{t.type === "income" ? "Entrada" : "Saída"}</span></td>
                   <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     <strong style={{ display: "block", fontSize: 13 }}>{t.description}</strong>
-                    <span style={{ color: "#888", fontSize: 12 }}>{t.type === "income" ? "Entrada" : "Saída"}</span>
                   </td>
                   <td><span className={`tag ${t.type === "income" ? "tag-green" : "tag-red"}`}>{t.category}</span></td>
                   <td style={{ fontSize: 12, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.account || <span style={{ color: "#999" }}>-</span>}</td>
@@ -381,7 +382,8 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
                   </td>
                   <td>
                     {t.orders?.length ? (
-                      <span className="finance-order-badge" onClick={() => setDetailOrderId(t.orders[0]?.id)} style={{ cursor: "pointer" }}>
+                      <span className="finance-order-badge" onClick={() => setDetailOrderId(t.orders[0]?.id)} style={{ cursor: "pointer" }}
+                        title={t.orders.map((o: any) => `#${o.id}${o.externalOrderId ? ` · ${o.externalOrderId}` : ""} · ${o.customer || "—"}`).join("\n")}>
                         {t.orders.length} pedido{t.orders.length > 1 ? "s" : ""}
                       </span>
                     ) : <span style={{ color: "#ccc", fontSize: 11 }}>—</span>}
