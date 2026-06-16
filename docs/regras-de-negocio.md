@@ -1,7 +1,9 @@
 # Regras de Negócio — 3D Manager
 
 > Sistema de gestão para e-commerce de impressão 3D.
-> Versão: 0.3.0 | Última atualização: 14/06/2026
+> Versão: 0.4.0 | Última atualização: 16/06/2026
+
+> Mudanças nesta versão: centralização da regra "Devolvido zera" em `server/financials.ts`. Módulo compartilhado `brazilianStates`. Remoção de duplicações em `index.ts` e `importer.ts`.
 
 ---
 
@@ -68,6 +70,8 @@ em `server/statusConfig.ts:STATUS_TRANSITIONS`:
   - `additional_costs_cents = 0`
   - `cost_unit_cents` em `order_items` também é zerado.
 - Na importação, pedidos com status Devolvido também recebem financeiros zerados.
+
+> **Nota técnica:** A lógica "Devolvido zera" é centralizada em `server/financials.ts` (função `normalizeFinancialsForStorage` e `expectedFinancialsFor`). O endpoint de import (`importer.ts`) e o `PUT /api/orders/:id/status` (`index.ts`) usam o mesmo helper, evitando drift entre fluxos. Há 25 testes em `server/__tests__/financials.test.ts` cobrindo o comportamento.
 
 ### RN05 – Exclusão de Pedido
 - Exclusão física (DELETE) com remoção em cascata de `order_items` e `order_financials`.
@@ -342,13 +346,18 @@ O cupom é armazenado em `other_costs_cents`.
 
 | Arquivo | Conteúdo |
 |---|---|
-| `server/calculations.ts` | Fórmulas financeiras de pedido |
-| `server/importShared.ts` | Transições de status, mapeamento ML |
-| `server/importer.ts` | Lógica de importação, merge de clientes |
-| `server/importerMp.ts` | Parsing de CSV do Mercado Pago, preview, confirm |
-| `server/xlsxParser.ts` | Parsing de XLSX do Mercado Livre |
-| `server/db.ts` | Schema do banco, migração, seed |
+| `server/calculations.ts` | Fórmulas financeiras de pedido (grossRevenue, profit, margem) |
+| `server/financials.ts` | ⭐ Regra "Devolvido zera" + cálculo de cupom + match product by title |
+| `server/statusConfig.ts` | Transições de status, helpers `isDevolvido` / `getStatusId` |
+| `server/brazilianStates.ts` | Lista de UFs + helpers `getStateName` / `getStateAbbreviation` |
+| `server/importShared.ts` | Mapeamento de status ML → interno, normalização de acentos |
+| `server/importer.ts` | Lógica de importação ML, merge de clientes, batch de orders |
+| `server/importerMp.ts` | Parsing de CSV do Mercado Pago, preview, confirm, dedup |
+| `server/xlsxParser.ts` | Parsing de XLSX do Mercado Livre, agregação de "Pacote de diversos" |
+| `server/db.ts` | Schema do banco, migração, seed, backup automático |
 | `server/index.ts` | Rotas da API, validações (zod) |
 | `src/ui/ProductModal.tsx` | Calculadora de custo de produção |
 | `src/ui/OrderModal.tsx` | Formulário de pedidos, autocomplete |
-| `src/ui/finance.ts` | Cálculos financeiros do frontend |
+| `src/ui/OrderFinancialSidebar.tsx` | Sidebar com breakdown financeiro em cascata |
+| `src/ui/finance.ts` | Re-export de `calculateOrderTotals` para o frontend |
+| `src/shared/brazilianStates.ts` | Espelho de `server/brazilianStates.ts` para o frontend |

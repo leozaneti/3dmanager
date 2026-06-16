@@ -16,6 +16,8 @@ import { hashPassword, verifyPassword, createSession, deleteSession, validateSes
 import { authMiddleware } from "./middleware/auth.js";
 import { mapStatus } from "./importShared.js";
 import { STATUS_TRANSITIONS, loadStatuses, getStatusId, isDevolvido, isValidStatusId, resolveTransitions, getStatusName } from "./statusConfig.js";
+import { computeCupomCents, matchProductByTitle, zeroFinancialsSetClause } from "./financials.js";
+import { getStateName } from "./brazilianStates.js";
 
 const app = Fastify({ logger: true });
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
@@ -248,7 +250,8 @@ app.post("/api/imports/preview", async (request, reply) => {
     }
     const fileBuffer = Buffer.from(await data.toBuffer());
     const { parseMercadoLivreXlsx } = await import("./xlsxParser.js");
-    const orders = parseMercadoLivreXlsx(fileBuffer);
+    const parseResult = parseMercadoLivreXlsx(fileBuffer);
+    const orders = parseResult.orders;
 
     const salesChannelId = (get("select id from sales_channels where name = 'Mercado Livre'") as any)?.id ?? 1;
     const allStatuses = (db.prepare("select id, name from order_statuses").all() as { id: number; name: string }[]);
@@ -256,6 +259,12 @@ app.post("/api/imports/preview", async (request, reply) => {
 
     let duplicated = 0;
     const errors: { row: number; message: string }[] = [];
+
+    /* Pedidos que o parser descartou (ex: sem saleNumber/orderNumber, sem nome).
+       São mergeados em `errors` para aparecer na aba "Erros" do preview. */
+    for (const info of parseResult.infoRows) {
+      errors.push({ row: info.rowNumber, message: info.error });
+    }
 
     const missingSkuSet = new Set<string>();
     const allSkus = new Set<string>();
@@ -270,25 +279,16 @@ app.post("/api/imports/preview", async (request, reply) => {
     }
 
     const unmatchedTitlesSet = new Set<string>();
-    const productList = all("select id, name from products") as { id: number; name: string }[];
-    const productNorms = productList.map(p => ({ ...p, norm: p.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() }));
-    const stopwords = new Set(["de", "da", "do", "das", "dos", "para", "com", "uma", "um", "em", "no", "na", "por", "voce", "você", "sua", "seu", "mais", "pra", "que", "pro", "aos", "nas", "nos", "sem", "ate", "até", "ate", "lp", "a-z", "10"]);
+    const productList = (all("select id, name, sku, current_cost_cents from products") as { id: number; name: string; sku: string; current_cost_cents: number }[]).map((p) => ({
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
+      costCents: p.current_cost_cents,
+    }));
     for (const o of orders) {
       for (const item of o.items) {
         if (item.sku || !item.title) continue;
-        const titleNorm = item.title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        const keywords = titleNorm.split(/[\s,;:/()\[\]–—\-]+/).filter(w => w.length > 2 && !stopwords.has(w));
-        if (keywords.length === 0) continue;
-        let matched = false;
-        for (const pn of productNorms) {
-          if (!pn.norm.includes(keywords[0])) continue;
-          let score = 0;
-          for (const kw of keywords) {
-            if (pn.norm.includes(kw)) score++;
-          }
-          const threshold = keywords.length === 2 ? 2 : Math.max(1, Math.ceil(keywords.length / 2));
-          if (score >= threshold) { matched = true; break; }
-        }
+        const matched = matchProductByTitle(productList, item.title);
         if (!matched) unmatchedTitlesSet.add(item.title.trim());
       }
     }
@@ -331,10 +331,7 @@ app.post("/api/imports/preview", async (request, reply) => {
         if (existing.discount_cents !== Math.abs(o.financials.discount)) {
           changes.push({ field: "Desconto", from: String(existing.discount_cents / 100), to: String(Math.abs(o.financials.discount) / 100) });
         }
-        const finSum = o.financials.productsRevenue + o.financials.shippingRevenue
-                     + o.financials.platformFee + o.financials.shippingFee;
-        const gap = o.financials.total - finSum - o.financials.discount;
-        const newCupomCents = gap < 0 ? -gap : 0;
+        const newCupomCents = computeCupomCents(o.financials, false);
         if (existing.other_costs_cents !== newCupomCents) {
           changes.push({ field: "Cupom", from: String(existing.other_costs_cents / 100), to: String(newCupomCents / 100) });
         }
@@ -357,7 +354,9 @@ app.post("/api/imports/preview", async (request, reply) => {
         if (changes.length === 0) {
           duplicated++;
           isDuplicate = true;
-          return null;
+          /* Não fazer return null: o pedido precisa aparecer no preview com flag
+             isDuplicate=true e hasChanges=false, para o usuário ver que já existe
+             e foi pulado pelo confirm (que checa hasChanges). */
         }
       }
 
@@ -374,6 +373,7 @@ app.post("/api/imports/preview", async (request, reply) => {
         hasMissingSku,
         existingOrderId: existing?.id ?? null,
         hasChanges: changes.length > 0,
+        isDuplicate,
         changes,
       };
     }).filter(Boolean) as any[];
@@ -386,6 +386,7 @@ app.post("/api/imports/preview", async (request, reply) => {
       sales,
       summary: {
         foundOrders: orders.length,
+        parsedRows: parseResult.infoRows.length,
         newCustomers: 0,
         existingCustomers: 0,
         duplicated,
@@ -765,16 +766,7 @@ app.get("/api/customers", (request) => {
     statsParams.push(String(query.endDate));
   }
   if (query.state) {
-    const UF_TO_STATE: Record<string, string> = {
-      AC:"ACRE", AL:"ALAGOAS", AP:"AMAPÁ", AM:"AMAZONAS", BA:"BAHIA",
-      CE:"CEARÁ", DF:"DISTRITO FEDERAL", ES:"ESPÍRITO SANTO", GO:"GOIÁS",
-      MA:"MARANHÃO", MT:"MATO GROSSO", MS:"MATO GROSSO DO SUL", MG:"MINAS GERAIS",
-      PA:"PARÁ", PB:"PARAÍBA", PR:"PARANÁ", PE:"PERNAMBUCO", PI:"PIAUÍ",
-      RJ:"RIO DE JANEIRO", RN:"RIO GRANDE DO NORTE", RS:"RIO GRANDE DO SUL",
-      RO:"RONDÔNIA", RR:"RORAIMA", SC:"SANTA CATARINA", SP:"SÃO PAULO",
-      SE:"SERGIPE", TO:"TOCANTINS"
-    };
-    const stateName = UF_TO_STATE[String(query.state).toUpperCase()] ?? String(query.state);
+    const stateName = getStateName(String(query.state));
     conditions.push("c.estado = ?");
     params.push(stateName);
   }
@@ -923,45 +915,58 @@ app.get("/api/customers/:id/summary", (request, reply) => {
     reply.code(404);
     return { error: "Cliente não encontrado" };
   }
-  const orders = all<any>(
+
+  /* Agregados calculados no SQL — evita carregar todos os pedidos do cliente em memória. */
+  const stats = get<{
+    totalOrders: number;
+    totalRevenueCents: number;
+    totalProfitCents: number;
+    firstPurchase: string | null;
+    lastPurchase: string | null;
+  }>(
     `
       select
-        o.id,
-        o.sale_date as saleDate,
-        o.status_id as statusId,
-        os.name as statusName,
-        sc.name as salesChannelName,
-      o.sale_date as saleDate,
-      of.products_amount_cents as productsAmountCents,
-      of.shipping_total_cents as shippingTotalCents,
-      of.shipping_customer_cents as shippingCustomerCents,
-      of.platform_fee_cents as platformFeeCents,
-      of.discount_cents as discountCents,
-      of.other_costs_cents as otherCostsCents,
-      of.amount_received_cents as amountReceivedCents,
-      of.packaging_cents as packagingCents,
-      of.additional_costs_cents as additionalCostsCents,
-        coalesce(sum(oi.quantity * oi.cost_unit_cents), 0) as itemsCostCents
+        count(*) as totalOrders,
+        coalesce(sum(case when o.status_id != ? then of.products_amount_cents else 0 end), 0) as totalRevenueCents,
+        0 as totalProfitCents,
+        min(o.sale_date) as firstPurchase,
+        max(o.sale_date) as lastPurchase
       from orders o
-      join order_statuses os on os.id = o.status_id
-      join sales_channels sc on sc.id = o.sales_channel_id
       join order_financials of on of.order_id = o.id
-      left join order_items oi on oi.order_id = o.id
       where o.customer_id = ?
-      group by o.id
-      order by o.sale_date desc, o.id desc
     `,
-    [id]
-  ).map((row) => ({ ...row, totals: calculateOrderTotals(row) }));
+    [getStatusId("devolvido"), id]
+  ) ?? { totalOrders: 0, totalRevenueCents: 0, totalProfitCents: 0, firstPurchase: null, lastPurchase: null };
 
-  const activeOrders = orders.filter((o) => !isDevolvido(o.statusId));
-  const totalOrders = activeOrders.length;
-  const totalRevenueCents = activeOrders.reduce((s, o) => s + o.productsAmountCents, 0);
-  const totalProfitCents = activeOrders.reduce((s, o) => s + o.totals.profitCents, 0);
-  const firstPurchase = orders.length > 0 ? orders[orders.length - 1].saleDate : null;
-  const lastPurchase = orders.length > 0 ? orders[0].saleDate : null;
+  /* Lucro total: precisa de itemsCostCents por pedido, então agregamos via subquery */
+  const profitRow = get<{ totalProfitCents: number }>(
+    `
+      select coalesce(sum(
+        of.products_amount_cents + of.shipping_customer_cents
+        - of.shipping_total_cents - of.platform_fee_cents
+        - of.other_costs_cents + of.discount_cents
+        - coalesce(items.total, 0)
+        - of.packaging_cents - of.additional_costs_cents
+      ), 0) as totalProfitCents
+      from orders o
+      join order_financials of on of.order_id = o.id
+      left join (
+        select order_id, sum(quantity * cost_unit_cents) as total
+        from order_items group by order_id
+      ) items on items.order_id = o.id
+      where o.customer_id = ? and o.status_id != ?
+    `,
+    [id, getStatusId("devolvido")]
+  );
 
-  return { customer, orders, totalOrders, totalRevenueCents, totalProfitCents, firstPurchase, lastPurchase };
+  return {
+    customer,
+    totalOrders: stats.totalOrders,
+    totalRevenueCents: stats.totalRevenueCents,
+    totalProfitCents: profitRow?.totalProfitCents ?? 0,
+    firstPurchase: stats.firstPurchase,
+    lastPurchase: stats.lastPurchase,
+  };
 });
 
 function orderListWhere(query: Record<string, unknown>) {
@@ -1297,17 +1302,7 @@ app.put("/api/orders/:id/status", async (request, reply) => {
   if (isDevolvido(statusId)) {
     const channel = get("select name from sales_channels where id = ?", [(order as any).sales_channel_id]) as any;
     if (channel?.name === "Mercado Livre") {
-      db.prepare(`update order_financials set
-        products_amount_cents = 0,
-        shipping_total_cents = 0,
-        shipping_customer_cents = 0,
-        platform_fee_cents = 0,
-        discount_cents = 0,
-        other_costs_cents = 0,
-        amount_received_cents = 0,
-        packaging_cents = 0,
-        additional_costs_cents = 0
-      where order_id = ?`).run(id);
+      db.prepare(`update order_financials set ${zeroFinancialsSetClause()} where order_id = ?`).run(id);
       db.prepare("update order_items set cost_unit_cents = 0 where order_id = ?").run(id);
       db.log("status", "order", id, `Pedido #${id} → "Devolvido" (ML) — valores estornados`);
       return { ok: true };

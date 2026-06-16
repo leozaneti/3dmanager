@@ -7,17 +7,9 @@ import { DashboardDaily } from "./DashboardDaily";
 import { DashboardCompBar } from "./DashboardCompBar";
 import { DashboardChart } from "./DashboardChart";
 import { DashboardChannels } from "./DashboardChannels";
-
-function Header({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="page-header">
-      <div>
-        <h1>{title}</h1>
-        <p className="page-header-subtitle">{subtitle}</p>
-      </div>
-    </div>
-  );
-}
+import { PageHeader } from "../PageHeader";
+import { DatePresetBar, type DatePreset } from "../DatePresetBar";
+import { dateRangeFor } from "../../hooks/useDatePresets";
 
 export function Dashboard({ meta }: { meta: Meta }) {
   const today = new Date();
@@ -34,70 +26,11 @@ export function Dashboard({ meta }: { meta: Meta }) {
   });
   const [channelView, setChannelView] = useState<"revenue" | "orders" | "margin">("revenue");
 
-  function setPreset(preset: string) {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    const d = now.getDate();
-    switch (preset) {
-      case "today":
-        setStartDate(todayStr);
-        setEndDate(todayStr);
-        setAllTime(false);
-        break;
-      case "yesterday": {
-        const yest = new Date(now);
-        yest.setDate(d - 1);
-        const s = yest.toISOString().slice(0, 10);
-        setStartDate(s);
-        setEndDate(s);
-        setAllTime(false);
-        break;
-      }
-      case "7d": {
-        const dt = new Date(now);
-        dt.setDate(d - 7);
-        setStartDate(dt.toISOString().slice(0, 10));
-        setEndDate(todayStr);
-        setAllTime(false);
-        break;
-      }
-      case "15d": {
-        const dt = new Date(now);
-        dt.setDate(d - 15);
-        setStartDate(dt.toISOString().slice(0, 10));
-        setEndDate(todayStr);
-        setAllTime(false);
-        break;
-      }
-      case "30d": {
-        const dt = new Date(now);
-        dt.setDate(d - 30);
-        setStartDate(dt.toISOString().slice(0, 10));
-        setEndDate(todayStr);
-        setAllTime(false);
-        break;
-      }
-      case "month":
-        setStartDate(firstOfMonth);
-        setEndDate(todayStr);
-        setAllTime(false);
-        break;
-      case "lastmonth": {
-        const lastMonthStart = new Date(y, m - 1, 1);
-        const lastMonthEnd = new Date(y, m, 0);
-        setStartDate(lastMonthStart.toISOString().slice(0, 10));
-        setEndDate(lastMonthEnd.toISOString().slice(0, 10));
-        setAllTime(false);
-        break;
-      }
-      case "all": {
-        setStartDate("");
-        setEndDate("");
-        setAllTime(true);
-        break;
-      }
-    }
+  function setPreset(preset: DatePreset) {
+    const { startDate, endDate, allTime } = { ...dateRangeFor(preset), allTime: preset === "all" };
+    setStartDate(startDate);
+    setEndDate(endDate);
+    setAllTime(allTime);
   }
 
   const params = new URLSearchParams();
@@ -120,22 +53,18 @@ export function Dashboard({ meta }: { meta: Meta }) {
 
   return (
     <>
-      <Header title="Dashboard" subtitle="Resultados por período com comparativo" />
+      <PageHeader title="Dashboard" subtitle="Resultados por período com comparativo" />
 
       <div className="toolbar">
-        <div className="date-filter">
-          <button type="button" className={startDate === todayStr && endDate === todayStr ? "active" : ""} onClick={() => setPreset("today")}>Hoje</button>
-          <button type="button" onClick={() => setPreset("yesterday")}>Ontem</button>
-          <button type="button" onClick={() => setPreset("7d")}>7D</button>
-          <button type="button" onClick={() => setPreset("15d")}>15D</button>
-          <button type="button" onClick={() => setPreset("30d")}>30D</button>
-          <button type="button" onClick={() => setPreset("month")}>Este mês</button>
-          <button type="button" onClick={() => setPreset("lastmonth")}>Mês passado</button>
-          <button type="button" onClick={() => setPreset("all")}>Todo período</button>
-          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setAllTime(false); }} />
-          <span style={{ color: "#888" }}>até</span>
-          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setAllTime(false); }} />
-        </div>
+        <DatePresetBar
+          activePreset={startDate === todayStr && endDate === todayStr ? "today" : undefined}
+          isAllTime={allTime}
+          onPresetChange={setPreset}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={(v) => { setStartDate(v); setAllTime(false); }}
+          onEndDateChange={(v) => { setEndDate(v); setAllTime(false); }}
+        />
         <select value={storeId} onChange={(event) => setStoreId(event.target.value)}>
           <option value="">Todas as lojas</option>
           {meta.stores.map((store) => (

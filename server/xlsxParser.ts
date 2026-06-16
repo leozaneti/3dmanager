@@ -43,7 +43,12 @@ export type ParsedOrder = {
   raw: ParsedRow;
 };
 
-export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
+export type XlsxParseResult = {
+  orders: ParsedOrder[];
+  infoRows: { rowNumber: number; error: string }[];
+};
+
+export function parseMercadoLivreXlsx(data: Buffer): XlsxParseResult {
   const workbook = read(data, { type: "array" });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
@@ -234,13 +239,24 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
           pendingBundle.status = itemStatus;
           pendingBundle.statusDescription = itemStatusDesc;
         }
+        const itemSku = getString(rowObj, "SKU");
+        const itemTitle = getString(rowObj, "Título do anúncio");
         pendingBundle.items.push({
-          sku: getString(rowObj, "SKU"),
-          title: getString(rowObj, "Título do anúncio"),
+          sku: itemSku,
+          title: itemTitle,
           variation: getString(rowObj, "Variação"),
           quantity: getInt(rowObj, "Unidades"),
           unitPrice: parseBRL(getStringBySubstring(rowObj, ["unitário", "preço"])),
         });
+        /* Aviso: item de pacote sem SKU é uma ocorrência comum quando o ML separa
+           itens do "Pacote de diversos". O import vai tentar match por título; se
+           não encontrar, o pedido inteiro é pulado. */
+        if (!itemSku) {
+          infoRows.push({
+            rowNumber,
+            error: `Item do pacote sem SKU: "${itemTitle || "(sem título)"}" — será feito match por título`,
+          });
+        }
         return;
       }
       // Fall through: pacote=Sim mas sem bundle ativo → tratar como pedido avulso
@@ -324,23 +340,13 @@ export function parseMercadoLivreXlsx(data: Buffer): ParsedOrder[] {
     orders.set(ctx.saleNumber || ctx.orderNumber, finalizeBundle(ctx));
   }
 
-  return Array.from(orders.values());
+  return { orders: Array.from(orders.values()), infoRows };
 }
 
 function getString(row: ParsedRow, key: string): string {
   const raw = row[key];
   if (raw === undefined || raw === null) return "";
   return String(raw).trim();
-}
-
-function getStringMulti(row: ParsedRow, ...keys: string[]): string {
-  for (const key of keys) {
-    const raw = row[key];
-    if (raw !== undefined && raw !== null && String(raw).trim()) {
-      return String(raw).trim();
-    }
-  }
-  return "";
 }
 
 function getStringBySubstring(row: ParsedRow, substrings: string[]): string {
@@ -403,7 +409,7 @@ const MONTHS_PT: Record<string, string> = {
   setembro: "09", outubro: "10", novembro: "11", dezembro: "12",
 };
 
-function parseExcelDate(value: string | Date): string {
+export function parseExcelDate(value: string | Date): string {
   if (!value) return "";
   if (typeof value !== "string") {
     return value.toISOString().slice(0, 10);
@@ -413,7 +419,7 @@ function parseExcelDate(value: string | Date): string {
   if (isoMatch) return isoMatch[1];
   const brDate = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (brDate) return `${brDate[3]}-${brDate[2]}-${brDate[1]}`;
-  const brLong = text.match(/(\d{1,2})\s+de\s+(\S+?)(?:\s+de\s+(\d{4}))?(?:\s*[|]\s*\d{2}:\d{2})?$/i);
+  const brLong = text.match(/^(\d{1,2})\s+de\s+(\S+)(?:\s+de\s+(\d{4}))?/i);
   if (brLong) {
     const month = MONTHS_PT[brLong[2].toLowerCase()];
     if (month) {

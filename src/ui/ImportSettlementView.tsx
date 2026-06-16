@@ -3,7 +3,7 @@ import {
   Upload, CheckCircle2, XCircle, FileWarning, Loader2,
   FileSpreadsheet, BadgeCheck, Wallet, RotateCcw
 } from "lucide-react";
-import { money } from "./api";
+import { api, money } from "./api";
 
 type ImportStatus = "idle" | "preview" | "importing" | "done" | "error";
 
@@ -47,20 +47,6 @@ interface MpImportResult {
   imported: number;
   duplicated: number;
   errors: { line: number; message: string }[];
-}
-
-async function apiDirect<T>(path: string, body: FormData | object): Promise<T> {
-  const isFormData = body instanceof FormData;
-  const response = await fetch(`http://127.0.0.1:3333/api${path}`, {
-    method: "POST",
-    headers: isFormData ? {} : { "Content-Type": "application/json" },
-    body: isFormData ? body : JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || "Erro na importação");
-  }
-  return response.json() as Promise<T>;
 }
 
 export function ImportSettlementView() {
@@ -118,7 +104,7 @@ export function ImportSettlementView() {
     try {
       const formData = new FormData();
       formData.append("file", file, file.name);
-      const data = await apiDirect<MpPreviewData>("/imports/mp/preview", formData);
+      const data = await api<MpPreviewData>("/imports/mp/preview", { method: "POST", body: formData });
       setPreview(data);
       setSelectedKeys(new Set(data.rows.filter(r => !r.skipped && r.status !== "duplicate").map(r => r.key)));
     } catch (err) {
@@ -132,9 +118,12 @@ export function ImportSettlementView() {
     setStatus("importing");
     setError("");
     try {
-      const res = await apiDirect<MpImportResult>("/imports/mp/confirm", {
-        token: preview.token,
-        selectedKeys: [...selectedKeys],
+      const res = await api<MpImportResult>("/imports/mp/confirm", {
+        method: "POST",
+        body: JSON.stringify({
+          token: preview.token,
+          selectedKeys: [...selectedKeys],
+        }),
       });
       setResult(res);
       setStatus("done");

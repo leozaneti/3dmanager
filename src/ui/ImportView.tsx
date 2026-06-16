@@ -32,6 +32,7 @@ interface SalePreview {
   hasMissingSku: boolean;
   existingOrderId: number | null;
   hasChanges: boolean;
+  isDuplicate: boolean;
   changes: { field: string; from: string; to: string }[];
 }
 
@@ -40,6 +41,7 @@ interface PreviewData {
   sales: SalePreview[];
   summary: {
     foundOrders: number;
+    parsedRows: number;
     newCustomers: number;
     existingCustomers: number;
     duplicated: number;
@@ -56,6 +58,7 @@ interface ImportResultData {
   importedOrders: number;
   duplicatedOrders: number;
   updatedOrders: number;
+  ignoredOrders: number;
   createdCustomers: number;
   reusedCustomers: number;
   updatedCustomers: number;
@@ -143,26 +146,11 @@ export function ImportView() {
     const fd = new FormData();
     fd.append("file", f, f.name);
     try {
-      const res = await fetch("http://127.0.0.1:3333/api/imports/validate", { method: "POST", body: fd });
-      const data = await res.json();
+      const data = await api<{ valid: boolean }>("/imports/validate", { method: "POST", body: fd });
       setValidFormat(data.valid);
     } catch {
       setValidFormat(false);
     }
-  }
-
-  async function apiDirect<T>(path: string, body: FormData | object): Promise<T> {
-    const isFormData = body instanceof FormData;
-    const response = await fetch(`http://127.0.0.1:3333/api${path}`, {
-      method: "POST",
-      headers: isFormData ? {} : { "Content-Type": "application/json" },
-      body: isFormData ? body : JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || "Erro na importação");
-    }
-    return response.json() as Promise<T>;
   }
 
   const parseLocal = async () => {
@@ -172,10 +160,15 @@ export function ImportView() {
     try {
       const formData = new FormData();
       formData.append("file", file, file.name);
-      const res = await apiDirect<PreviewData>("/imports/preview", formData);
+      const res = await api<PreviewData>("/imports/preview", { method: "POST", body: formData });
       setToken(res.token);
       setPreview(res);
-      setSelectedKeys(new Set(res.sales.filter(s => !s.hasMissingSku).map(s => getKey(s))));
+      /* Seleciona automaticamente: novos (sem existingOrderId) OU com mudanças.
+         Pedidos duplicados sem mudanças (isDuplicate=true && !hasChanges) ficam
+         desmarcados pois o backend os ignoraria no confirm. */
+      setSelectedKeys(new Set(res.sales.filter(s =>
+        !s.hasMissingSku && !(s.isDuplicate && !s.hasChanges)
+      ).map(s => getKey(s))));
       setPage(0);
     } catch (err) {
       setError((err as Error).message);
@@ -187,15 +180,13 @@ export function ImportView() {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:3333/api/imports/progress/${ptoken}`);
-        if (!res.ok) { stopPolling(); return; }
-        const data = await res.json() as {
+        const data = await api<{
           current: number;
           total: number;
           status: string;
           result?: ImportResultData;
           error?: string;
-        };
+        }>(`/imports/progress/${ptoken}`);
         setProgress({ current: data.current, total: data.total });
         if (data.status === "done" && data.result) {
           stopPolling();
@@ -224,9 +215,12 @@ export function ImportView() {
     setError("");
     setProgress({ current: 0, total: 0 });
     try {
-      const res = await apiDirect<{ progressToken: string }>("/imports/confirm", {
-        token,
-        selectedKeys: [...selectedKeys],
+      const res = await api<{ progressToken: string }>("/imports/confirm", {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          selectedKeys: [...selectedKeys],
+        }),
       });
       setProgressToken(res.progressToken);
       startPolling(res.progressToken);
@@ -250,10 +244,12 @@ export function ImportView() {
     if (file) {
       const formData = new FormData();
       formData.append("file", file, file.name);
-      apiDirect<PreviewData>("/imports/preview", formData).then((res) => {
+      api<PreviewData>("/imports/preview", { method: "POST", body: formData }).then((res) => {
         setToken(res.token);
         setPreview(res);
-      setSelectedKeys(new Set(res.sales.filter(s => !s.hasMissingSku).map(s => getKey(s))));
+        setSelectedKeys(new Set(res.sales.filter(s =>
+          !s.hasMissingSku && !(s.isDuplicate && !s.hasChanges)
+        ).map(s => getKey(s))));
         setPage(0);
       }).catch(() => {});
     }
@@ -281,7 +277,7 @@ export function ImportView() {
 
   const toggleAll = () => {
     if (!preview) return;
-    const selectable = preview.sales.filter(s => !s.hasMissingSku);
+    const selectable = preview.sales.filter(s => !s.hasMissingSku && !(s.isDuplicate && !s.hasChanges));
     if (selectedKeys.size === selectable.length) {
       setSelectedKeys(new Set());
     } else {
@@ -445,7 +441,7 @@ export function ImportView() {
             <div className={`import-card-item${preview.summary.duplicated > 0 ? " warning" : ""}`}>
               <CopyCheck size={18} />
               <div className="import-card-value">{preview.summary.duplicated}</div>
-              <div className="import-card-label">Duplicados</div>
+              <div className="import-card-label">Duplicados (sem alterações)</div>
             </div>
             <div className={`import-card-item${preview.errors.length > 0 ? " danger" : ""}`}>
               {preview.errors.length > 0 ? <AlertTriangle size={18} /> : <BadgeCheck size={18} />}
@@ -459,8 +455,9 @@ export function ImportView() {
             {selectedKeys.size < preview.sales.length
               ? `${selectedKeys.size} de ${preview.sales.length} pedidos selecionados.`
               : `${preview.sales.length} pedidos disponíveis para importação.`}
-            {preview.summary.duplicated > 0 && ` ${preview.summary.duplicated} ignorados (já importados).`}
+            {preview.summary.duplicated > 0 && ` ${preview.summary.duplicated} ignorados (já importados, sem alterações).`}
             {preview.summary.missingSkus > 0 && ` ${preview.summary.missingSkus} produto(s) não cadastrado(s).`}
+            {preview.summary.parsedRows > 0 && ` ${preview.summary.parsedRows} linha(s) ignorada(s) pelo parser (sem número, etc).`}
             {preview.customerCountNote && ` ${preview.customerCountNote}`}
           </p>
 
@@ -566,6 +563,7 @@ export function ImportView() {
                             {key}
                             {s.hasMissingSku && <span className="status-badge status-cancelado" style={{ marginLeft: 6, fontSize: 10 }}>SKU pendente</span>}
                             {s.hasChanges && !s.hasMissingSku && <span className="status-badge status-enviado" style={{ marginLeft: 6, fontSize: 10 }}>Atualizável</span>}
+                            {s.isDuplicate && !s.hasChanges && !s.hasMissingSku && <span className="status-badge status-entregue" style={{ marginLeft: 6, fontSize: 10 }}>Sem alterações</span>}
                           </td>
                           <td>{s.buyer}</td>
                           <td>
@@ -692,6 +690,7 @@ export function ImportView() {
             <div>Pedidos importados: <strong>{result.importedOrders}</strong></div>
             <div>Pedidos duplicados: <strong>{result.duplicatedOrders}</strong></div>
             {result.updatedOrders > 0 && <div>Pedidos atualizados: <strong>{result.updatedOrders}</strong></div>}
+            {result.ignoredOrders > 0 && <div>Pedidos ignorados: <strong>{result.ignoredOrders}</strong> <span style={{ fontSize: 11, color: "#92400e" }}>(SKU faltante, cliente inválido, etc.)</span></div>}
             <div>Clientes criados: <strong>{result.createdCustomers}</strong></div>
             <div>Clientes reutilizados: <strong>{result.reusedCustomers}</strong></div>
             <div>Clientes atualizados: <strong>{result.updatedCustomers}</strong></div>

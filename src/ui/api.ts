@@ -81,11 +81,12 @@ export type Customer = {
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
+  const isFormData = options?.body instanceof FormData;
   const response = await fetch(`/api${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...(hasBody && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...options?.headers
     }
   });
@@ -117,6 +118,8 @@ export function fromCents(cents?: number) {
 
 export function fmtDate(iso: string) {
   if (!iso) return "-";
-  const [y, m, d] = iso.split("T")[0].split("-");
+  const parts = iso.split("T")[0].split("-");
+  if (parts.length !== 3) return iso;
+  const [y, m, d] = parts;
   return `${d}/${m}/${y}`;
 }

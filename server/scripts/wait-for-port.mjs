@@ -2,7 +2,7 @@ import net from "node:net";
 import process from "node:process";
 
 const HOST = "127.0.0.1";
-const PORT = 3333;
+const PORT = Number(process.env.PORT) || 3333;
 const TIMEOUT_MS = Number(process.env.WAIT_TIMEOUT) || 60_000;
 const INTERVAL_MS = 300;
 const start = Date.now();

@@ -9,6 +9,9 @@
     <img src="https://img.shields.io/badge/Fastify-4-000?logo=fastify" />
     <img src="https://img.shields.io/badge/SQLite-3-003b57?logo=sqlite" />
     <img src="https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript" />
+    <br/>
+    <img src="https://img.shields.io/badge/tests-227_passing-brightgreen" />
+    <img src="https://img.shields.io/badge/license-private-lightgrey" />
   </p>
 </div>
 
@@ -21,8 +24,12 @@
 - [Regras de Negócio](#regras-de-negócio)
 - [Stack](#stack)
 - [Arquitetura](#arquitetura)
+- [Componentes & Hooks compartilhados](#componentes--hooks-compartilhados)
+- [Módulos de domínio](#módulos-de-domínio)
 - [Ambiente](#ambiente)
 - [Scripts](#scripts)
+- [Testes](#testes)
+- [CI/CD](#cicd)
 - [Fluxo de Trabalho](#fluxo-de-trabalho)
 
 ---
@@ -38,11 +45,12 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 ## Funcionalidades
 
 ### 📦 Controle de Pedidos
-- Ciclo completo: Novo → Produção → Enviado → Entregue / Devolvido / Cancelado
+- Ciclo completo: Novo → Enviado → Entregue / Devolvido / Cancelado
 - Transições de status validadas no backend
 - Suporte a **múltiplas lojas** e canais de venda (Mercado Livre, Shopee, Instagram, WhatsApp, Site)
-- Filtros por data, status, loja e busca textual
+- Filtros por data, status, loja, canal e busca textual
 - Auto-estorno financeiro ao marcar como Devolvido no Mercado Livre
+- Sidebar financeiro em cascata (Receita → Taxas/Frete → Custo Produção → Lucro)
 
 | Listagem | Detalhe do Pedido |
 |----------|-------------------|
@@ -55,6 +63,12 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Agregação de "Pacote de diversos" em pedido único
 - Merge inteligente de clientes (por documento ou nome+CEP)
 
+### 💸 Importação de Extrato MP (Mercado Pago)
+- Upload de CSV de settlement do Mercado Pago
+- Detecção de estornos (DISPUTE) e estornos de frete (DISPUTE_SHIPPING)
+- Vinculação automática com pedidos por `PACK_ID` ou `ORDER_ID`
+- Detecção de divergências entre valor recebido × esperado por pedido
+
 ![Importar](docs/screenshots/07-importar.png)
 
 ### 💰 Financeiro
@@ -65,6 +79,7 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
   - Realizado = pedido entregue com receita vinculada
   - A Realizar = pedido entregue ainda não faturado
 - Saldo inicial configurável
+- Detecção de divergências e transações órfãs
 
 ![Financeiro](docs/screenshots/05-financeiro.png)
 
@@ -73,6 +88,7 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Ticket médio, comparação com período anterior
 - Gráfico de receita × despesa com agrupamento automático (diário, semanal, mensal)
 - Filtro por data com exclusão automática de devolvidos
+- Tooltip on-hover com breakdown de cada KPI
 
 ![Dashboard](docs/screenshots/01-dashboard.png)
 
@@ -83,6 +99,7 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
   - **Energia**: custo por hora da impressora
   - **Máquina**: depreciação + manutenção do equipamento
   - **Taxa de erro**: margem de segurança sobre o subtotal
+- Preços de venda por canal com markup automático
 - Recalculo retroativo de custo em pedidos existentes (por data ou global)
 
 | Produtos | Calculadora de Custo |
@@ -93,9 +110,10 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 - Cadastro com histórico de pedidos e segmentação automática:
   - 🟢 **Novo** — primeira compra há ≤ 30 dias
   - 🔵 **Recorrente** — mais de um pedido
-  - 🟡 **Ouro** — maior receita bruta acumulada
+  - 🟡 **Ouro** — top 10% em receita bruta acumulada
   - ⚪ **Inativo** — sem compras há > 180 dias
 - Deduplicação por documento (fallback nome+CEP)
+- Detalhe do cliente com KPIs e histórico paginado de pedidos
 - Merge de dados na importação
 
 | Clientes | Detalhe do Cliente |
@@ -103,21 +121,23 @@ Em vez de adaptar a loja ao software, o software foi feito sob medida para a loj
 | ![Clientes](docs/screenshots/04-clientes.png) | ![Cliente](docs/screenshots/04b-cliente-detalhe.png) |
 
 ### 📋 Kanban (Tasks / Ideias / To-Dos)
-- Quadro de tarefas com colunas **Backlog**, **Fazendo** e **Pronto**
+- Quadro de tarefas com colunas customizáveis (default: Backlog, Fazendo, Pronto)
 - Drag-and-drop entre colunas
-- Conclusão automática com timestamp ao mover para "Pronto"
-- Cards com descrição e posicionamento ajustável
+- Conclusão automática com timestamp ao mover para coluna de "Pronto"
+- Cards com descrição, prioridade e data de vencimento
 
 ![Kanban](docs/screenshots/06-kanban.png)
 
 ### 🔐 Autenticação (opcional)
-- Sistema de sessão com hash de senha
-- Rate limit de login
-- Configuração única de senha
+- Sistema de sessão com hash de senha (scrypt + timingSafeEqual)
+- Rate limit de login (5 tentativas / 15 min)
+- Configuração única de senha via tela de Setup
+- Cookie HttpOnly + SameSite=Strict, 8h de expiração
 
 ### 📎 Outros
-- **Auditoria**: log de todas as operações CUD
+- **Auditoria**: log de todas as operações CUD em `audit_log`
 - **Backup automático**: a cada hora com política de retenção (30 dias diários + 1 por mês)
+- **Importação por progresso**: jobs pesados rodam async e o frontend faz polling
 
 ---
 
@@ -151,9 +171,27 @@ resultadoVenda   = receitaBruta − taxaPlataforma − freteTotal − outrosCust
 </details>
 
 <details>
-<summary>DR: Realizado × A Realizar</summary>
+<summary>Regra "Devolvido zera"</summary>
 
-O DRE separa pedidos **Entregues** em dois grupos:
+Pedidos com status `Devolvido` têm **todos** os valores financeiros zerados (estorno):
+- `products_amount_cents = 0`
+- `shipping_total_cents = 0`, `shipping_customer_cents = 0`
+- `platform_fee_cents = 0`, `discount_cents = 0`
+- `other_costs_cents = 0` (cupom)
+- `amount_received_cents = 0`
+- `packaging_cents = 0`, `additional_costs_cents = 0`
+- `cost_unit_cents` de todos os itens = 0
+
+A regra é centralizada em `server/financials.ts` e aplicada em:
+- `importer.ts` (insert + update de pedidos importados do ML)
+- `index.ts` (PUT `/api/orders/:id/status` quando canal = Mercado Livre)
+- `importerMp.ts` (atualiza o `other_costs_cents` no DRE em caso de estorno)
+</details>
+
+<details>
+<summary>DRE: Realizado × A Realizar</summary>
+
+O DRE separa pedidos **Entregue** em dois grupos:
 - **Realizado**: possuem ao menos uma transação de receita vinculada
 - **A Realizar**: não possuem nenhuma transação de receita vinculada
 
@@ -166,51 +204,156 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 
 ## Stack
 
-| Camada | Tecnologia |
-|--------|-----------|
-| **Frontend** | React 18, TypeScript, Vite, React Query, @dnd-kit |
-| **Backend** | Fastify 4, TypeScript, Zod (validação) |
-| **Banco** | SQLite via sql.js |
-| **Importação** | xlsx (parse de planilhas do Mercado Livre) |
-| **Build** | tsc + Vite |
+| Camada | Tecnologia | Versão |
+|--------|-----------|---------|
+| **Frontend** | React | 18 |
+| | TypeScript | 5 |
+| | Vite | 5 |
+| | React Query (TanStack) | 5 |
+| | @dnd-kit | 6 |
+| | lucide-react (ícones) | 0.468 |
+| | recharts (gráficos) | 3 |
+| **Backend** | Node.js | 18+ |
+| | Fastify | 4 |
+| | TypeScript | 5 |
+| | Zod (validação) | 3 |
+| **Banco** | SQLite 3 | via CLI (`execFileSync`) |
+| **Importação** | xlsx (parse de planilhas do Mercado Livre) | 0.18 |
+| **Build** | tsc + Vite | |
+
+---
 
 ## Arquitetura
 
 ```
-server/                         # Backend (Fastify + TypeScript)
-├── index.ts                    # Rotas da API (~1922 linhas)
-├── db.ts                       # Schema, migrações, seed, conexão
-├── calculations.ts             # Fórmulas financeiras dos pedidos
-├── importer.ts                 # Lógica de importação em lote
-├── importShared.ts             # Mapeamento de status ML → interno
-├── xlsxParser.ts               # Parsing da planilha do Mercado Livre
-├── auth.ts                     # Autenticação por sessão
-├── middleware/auth.ts          # Middleware de autenticação
-└── scripts/
-    ├── backup.ts               # Backup do banco de produção
-    └── seed-fake.ts            # Geração de dados falsos para testes
-
-src/ui/                         # Frontend (React + Vite)
-├── App.tsx                     # Componente principal (dashboard + pedidos)
-├── api.ts                      # Tipos compartilhados e função de API
-├── finance.ts                  # Cálculos financeiros do frontend
-├── OrderModal.tsx              # Formulário de pedidos com autocomplete
-├── OrderFinancialSidebar.tsx   # Painel financeiro do pedido (cascata)
-├── ProductModal.tsx            # Cadastro de produto + calculadora de custo
-├── CustomerDetailModal.tsx     # Detalhes do cliente com KPIs
-├── ImportView.tsx              # Tela de importação de planilhas
-├── KanbanView.tsx              # Quadro Kanban com drag-and-drop
-├── Dashboard*.tsx              # KPIs, gráficos, barras
-└── ...
+3D Manager
+├── server/                                 # Backend (Fastify + TypeScript)
+│   ├── index.ts                            # ~2144 linhas: todas as rotas da API
+│   ├── db.ts                               # Schema, migrações, seed, conexão SQLite
+│   ├── calculations.ts                     # Fórmulas financeiras de pedido (usado pelo frontend via re-export)
+│   ├── financials.ts                       # ⭐ Regra "Devolvido zera" + match product by title + cupom
+│   ├── brazilianStates.ts                  # ⭐ UF → nome completo (fonte única)
+│   ├── importer.ts                         # Importação de pedidos do Mercado Livre (XLSX)
+│   ├── importerMp.ts                       # Importação de extrato Mercado Pago (CSV)
+│   ├── importShared.ts                     # Mapeamento de status ML → status interno
+│   ├── xlsxParser.ts                       # Parse de XLSX com detecção de "Pacote de diversos"
+│   ├── statusConfig.ts                     # Transições válidas de status de pedido
+│   ├── auth.ts                             # Hash de senha + sessão em memória
+│   ├── middleware/auth.ts                  # Bloqueia rotas /api/* se AUTH_ENABLED=true
+│   └── scripts/
+│       ├── backup.ts                       # Backup manual do banco de produção
+│       ├── seed-fake.ts                    # Geração de dados fake para testes
+│       └── wait-for-port.mjs               # Helper para `dev:web` esperar API subir
+│
+├── src/                                    # Frontend (React + Vite)
+│   ├── main.tsx                            # Entry point
+│   ├── styles.css                          # CSS global
+│   ├── hooks/                              # Hooks reutilizáveis
+│   │   ├── useDeleteMutation.ts            # Wrapper de useMutation para DELETE
+│   │   ├── useSelection.ts                 # Estado de seleção (checkbox múltiplo)
+│   │   ├── useSort.ts                      # ⭐ Ordenação de tabelas com state
+│   │   └── useDatePresets.ts               # ⭐ Cálculo de ranges (today/7d/30d/etc)
+│   ├── shared/                             # ⭐ Código compartilhado front/back (espelhado)
+│   │   └── brazilianStates.ts              # Lista de UFs
+│   └── ui/
+│       ├── App.tsx                         # 114 linhas: auth state + sidebar + routing
+│       ├── api.ts                          # Tipos compartilhados + função `api()` (FormData-safe)
+│       ├── finance.ts                      # Re-export de `calculateOrderTotals`
+│       ├── dashboard-types.ts              # Tipos do Dashboard
+│       ├── dashboard/                      # Componentes do dashboard
+│       │   ├── Dashboard.tsx
+│       │   ├── DashboardKpiRow.tsx
+│       │   ├── DashboardDaily.tsx
+│       │   ├── DashboardCompBar.tsx
+│       │   ├── DashboardChart.tsx
+│       │   └── DashboardChannels.tsx
+│       ├── views/                          # ⭐ Páginas principais (extraídas de App.tsx)
+│       │   ├── ProductsView.tsx            # Lista de produtos + modais
+│       │   ├── CustomersView.tsx            # Lista de clientes + filtros + modal de cadastro
+│       │   ├── OrdersView.tsx               # Lista de pedidos + KPIs + tooltips
+│       │   └── SettingsView.tsx             # Lojas, parâmetros, auditoria, backup
+│       ├── PageHeader.tsx                  # ⭐ Cabeçalho reutilizável de página
+│       ├── Panel.tsx                       # ⭐ Seção com título
+│       ├── KpiCard.tsx                     # ⭐ Card de KPI (com e sem destaque)
+│       ├── DatePresetBar.tsx               # ⭐ Botões de preset + inputs de data
+│       ├── ModalShell.tsx                  # Modal base (com/sem form)
+│       ├── Notification.tsx                 # Banner de feedback
+│       ├── ConfirmDeleteModal.tsx          # Modal de confirmação com dependências
+│       ├── FormActions.tsx                 # Botões "Salvar" / "Cancelar"
+│       ├── Pagination.tsx                  # Controles de paginação
+│       ├── Autocomplete.tsx                # Input com sugestões
+│       ├── Login.tsx, Setup.tsx, AuthForm.tsx   # Fluxo de autenticação
+│       ├── OrderModal.tsx, OrderDetailModal.tsx, OrderFinancialSidebar.tsx
+│       ├── ProductModal.tsx
+│       ├── CustomerDetailModal.tsx
+│       ├── ImportView.tsx, ImportSettlementView.tsx
+│       ├── FinanceView.tsx
+│       ├── KanbanView.tsx
+│       └── utils/                          # ⭐ Utilitários puros
+│           ├── validators.ts               # CPF/CNPJ
+│           └── format.ts                   # formatBytes
+│
+├── docs/                                   # Documentação complementar
+│   ├── regras-de-negocio.md                # RNs detalhadas
+│   ├── ambiente-dev-prod.md                # Setup de dev e produção
+│   ├── architecture.md                     # ⭐ Diagrama + fluxo de dados
+│   ├── development.md                      # ⭐ Como rodar, debugar, adicionar view
+│   └── screenshots/                        # Capturas de tela
+│
+├── data/                                   # Bancos SQLite (gitignored)
+│   ├── dev.sqlite                          # Desenvolvimento
+│   ├── prod.sqlite                         # Produção
+│   └── backups/                            # Backups automáticos
+│
+└── dist/ + dist-server/                    # Outputs de build (gitignored)
 ```
 
 ### Decisões técnicas
 
 - **Valores monetários** armazenados como `INTEGER` em centavos (nunca `FLOAT`)
 - **Separação de ambientes** via `DB_ENV` — dois bancos SQLite independentes (`dev.sqlite` / `prod.sqlite`)
-- **Autenticação opcional** controlada por variável de ambiente
-- **API REST** com validação de entrada via Zod
+- **Autenticação opcional** controlada por variável de ambiente `AUTH_ENABLED`
+- **API REST** com validação de entrada via Zod em todas as rotas
 - **Frontend SPA** com React Query para cache e sincronização de dados
+- **Regra de negócio centralizada**: `server/financials.ts` é a única fonte da verdade para "Devolvido zera", evitando drift entre importer, preview e update de status
+
+---
+
+## Componentes & Hooks compartilhados
+
+| Módulo | Responsabilidade | Onde é usado |
+|--------|------------------|--------------|
+| `src/hooks/useSort` | Ordenação de tabelas (state + handler + memo) | `ProductsView`, `CustomersView`, `OrdersView`, `FinanceView` |
+| `src/hooks/useSelection` | Estado de seleção de checkbox múltiplo | Todas as views com bulk delete |
+| `src/hooks/useDeleteMutation` | Wrapper de `useMutation` para DELETE com invalidação automática | Todas as views com exclusão |
+| `src/hooks/useDatePresets` | Cálculo de ranges de data (today/7d/30d/month/lastmonth/all) | `DatePresetBar` |
+| `src/shared/brazilianStates` | Lista de UFs + helpers `getStateName` / `getStateAbbreviation` | Backend (filtro de customers) + frontend (dropdown) |
+| `src/ui/PageHeader` | Cabeçalho `<h1>` + subtítulo | Todas as views |
+| `src/ui/Panel` | Seção com `<h2>` + conteúdo | Todas as views com tabelas |
+| `src/ui/KpiCard` / `KpiHero` | Card de KPI | Dashboard, OrdersView, CustomersView, FinanceView |
+| `src/ui/DatePresetBar` | Botões de preset + inputs manuais de data | `OrdersView`, `CustomersView`, `Dashboard`, `FinanceView` |
+| `src/ui/ModalShell` | Modal base reutilizável (com/sem form) | Todos os modais |
+| `src/ui/utils/validators` | `validateDocument` (CPF/CNPJ) | `CustomersView` |
+| `src/ui/utils/format` | `formatBytes` | `SettingsView` |
+
+---
+
+## Módulos de domínio
+
+### Backend
+
+- **`server/calculations.ts`** — funções puras de cálculo financeiro. Recebe inputs do banco, retorna `{grossRevenue, profit, margin, ...}`. Sem dependência de DB.
+- **`server/financials.ts`** — regra de negócio "Devolvido zera" + cálculo de cupom + match de produto por título. Centraliza a lógica que antes estava duplicada em 4 lugares.
+- **`server/statusConfig.ts`** — transições válidas de status (`novo → enviado`, `enviado → entregue`, etc.) + helpers `getStatusId`, `isDevolvido`, `resolveTransitions`.
+- **`server/brazilianStates.ts`** — tabela UF → nome completo. Exporta `STATE_NAMES`, `STATES`, `getStateName`, `getStateAbbreviation`.
+- **`server/importShared.ts`** — `mapStatus` (ML → interno) e `normalize` (acentos).
+- **`server/auth.ts`** — hash de senha (scrypt) + sessão em memória. Sessão expira após 8h de inatividade.
+
+### Frontend
+
+- **`src/ui/finance.ts`** — re-export de `calculateOrderTotals`. Existe para que o frontend possa usar as funções sem importar diretamente do backend.
+- **`src/ui/api.ts`** — tipos compartilhados (Product, Customer, Order, etc) + função `api()` com suporte automático a FormData.
+- **`src/ui/dashboard-types.ts`** — tipos específicos do Dashboard (separados para não inflar `api.ts`).
 
 ---
 
@@ -218,40 +361,108 @@ src/ui/                         # Frontend (React + Vite)
 
 | Variável | Efeito | Padrão |
 |----------|--------|--------|
-| `DB_ENV` | Define qual banco SQLite usar | `dev` |
+| `DB_ENV` | Define qual banco SQLite usar (`dev`, `prod`, `test`) | `dev` |
 | `AUTH_ENABLED` | Habilita autenticação por senha | `false` |
+| `WAIT_TIMEOUT` | Timeout (ms) do `wait-for-port.mjs` | `60_000` |
 
 ### Bancos
 
-| Ambiente | Arquivo |
-|----------|---------|
-| Desenvolvimento | `data/dev.sqlite` |
-| Produção | `data/prod.sqlite` |
+| Ambiente | Arquivo | Quando usar |
+|----------|---------|-------------|
+| `dev` (padrão) | `data/dev.sqlite` | Desenvolvimento local |
+| `prod` | `data/prod.sqlite` | Produção |
+| `test` | `data/test.sqlite` | Rodar testes (definido em `vitest.config.ts`) |
+
+---
 
 ## Scripts
 
 | Comando | Descrição |
 |---------|-----------|
 | `npm run dev` | Sobe backend + frontend (banco dev, sem auth) |
-| `npm run dev:auth` | Modo dev com autenticação |
+| `npm run dev:auth` | Modo dev com autenticação habilitada |
+| `npm run dev:api` | Apenas o backend (porta 3333) |
+| `npm run dev:web` | Apenas o frontend (Vite, porta 5173) |
 | `npm run build` | Compila TypeScript e empacota o frontend |
 | `npm run start` | Sobe servidor de produção (porta 3333) |
-| `npm run backup` | Backup do banco de produção |
+| `npm run backup` | Backup manual do banco de produção |
+| `npm test` | Roda os 227 testes (vitest, single-run) |
+| `npm run test:watch` | Roda os testes em watch mode |
+
+---
+
+## Testes
+
+**Total: 227 testes passando**, distribuídos em 18 arquivos (16 backend + 5 frontend).
+
+### Backend (`server/__tests__/`)
+
+| Arquivo | Testes | Cobre |
+|---------|--------|-------|
+| `calculations.test.ts` | 16 | Fórmulas financeiras (grossRevenue, profit, margem) |
+| `brazilianStates.test.ts` | 19 | Conversão UF ↔ nome, case-insensitive, 27 UFs |
+| `financials.test.ts` | 25 | Regra "Devolvido zera", cálculo de cupom, match product by title |
+| `statusConfig.test.ts` | 12 | Transições válidas, isDevolvido |
+| `db.test.ts` | 27 | Schema, migrações, seed |
+| `crud.test.ts` | 14 | CRUD de orders, customers, products |
+| `search.test.ts` | 14 | Busca textual + filtros |
+| `dashboard.test.ts` | 8 | Endpoint `/api/dashboard` |
+| `transactions.test.ts` | 16 | Receitas/despesas + DRE + categorias |
+| `customer-summary.test.ts` | 3 | Agregação SQL de summary |
+| `import-delivery-e2e.test.ts` | 10 | E2E: import de delivery dates |
+| `formula-consistency.test.ts` | 7 | Backend = frontend em fórmulas |
+| `wait-for-port.test.ts` | 3 | Helper de port-wait |
+
+### Frontend (`src/ui/__tests__/`)
+
+| Arquivo | Testes | Cobre |
+|---------|--------|-------|
+| `api.test.ts` | 19 | Helper `api()` + tipos |
+| `finance.test.ts` | 9 | `calculateKpisFromTotals` |
+| `DashboardKpiRow.test.tsx` | 11 | KPIs financeiros e operacionais |
+| `DashboardCompBar.test.tsx` | 5 | Barra de composição |
+| `OrderFinancialSidebar.test.tsx` | 9 | Sidebar de pedido |
+
+### Como rodar
+
+```bash
+npm test              # single-run
+npm run test:watch    # watch mode
+```
+
+Os testes usam `data/test.sqlite` (configurado em `vitest.config.ts` via `env: { DB_ENV: 'test' }`).
+
+---
+
+## CI/CD
+
+Workflow do GitHub Actions em `.github/workflows/ci.yml` roda em todo PR e push para `main`/`dev`:
+
+- ✅ `tsc --noEmit` em ambos os `tsconfig` (frontend e backend)
+- ✅ `vitest` (227 testes, ~3-4 min incluindo o teste de performance de 1000 pedidos)
+- ✅ `npm run build` (build de produção)
+
+Para ativar proteção de branch: GitHub → Settings → Branches → main → marcar "Require status checks to pass".
+
+---
 
 ## Fluxo de Trabalho
 
 ```
 main (produção) ←── merge ── dev (desenvolvimento)
-     │                           │
-  npm run start               npm run dev
-  data/prod.sqlite            data/dev.sqlite
+      │                           │
+   npm run start               npm run dev
+   data/prod.sqlite            data/dev.sqlite
 ```
 
 1. Desenvolva na branch `dev` com `npm run dev`
 2. Antes de publicar: `git checkout main && npm run backup`
-3. Merge: `git merge dev`
-4. Build: `npm run build`
-5. Sobe: `npm run start`
+3. Crie um PR de `dev` para `main` (CI valida automaticamente)
+4. Merge: `git merge dev` (ou via botão "Merge" do GitHub se CI estiver passando)
+5. Build: `npm run build`
+6. Sobe: `npm run start`
+
+Para mais detalhes, veja [`docs/desenvolvimento.md`](docs/development.md) e [`docs/arquitetura.md`](docs/arquitetura.md).
 
 ---
 

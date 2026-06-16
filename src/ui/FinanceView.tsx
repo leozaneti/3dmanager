@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
-import { api, money, fromCents } from "./api";
+import { api, money, fromCents, fmtDate } from "./api";
 import { ModalShell } from "./ModalShell";
 import { FormActions } from "./FormActions";
 import { Pagination } from "./Pagination";
 import { OrderDetailModal } from "./OrderDetailModal";
+import { Panel } from "./Panel";
+import { PageHeader } from "./PageHeader";
+import { DatePresetBar, type DatePreset } from "./DatePresetBar";
+import { dateRangeFor } from "../hooks/useDatePresets";
+import { useSort } from "../hooks/useSort";
 
 const ACCOUNT_OPTIONS = [
   "Mercado Pago", "Nubank", "Itaú", "Caixa", "Bradesco",
@@ -13,29 +18,6 @@ const ACCOUNT_OPTIONS = [
 ];
 
 const PAGE_SIZE = 25;
-
-function fmtDate(iso: string) {
-  if (!iso) return "-";
-  const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("pt-BR");
-}
-
-function useSort<T>(data: T[], defaultSort: string) {
-  const [sortBy, setSortBy] = useState(defaultSort);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const handleSort = (key: string) => {
-    if (sortBy === key) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSortBy(key); setSortDir("asc"); }
-  };
-  const sorted = [...data].sort((a: any, b: any) => {
-    const av = a[sortBy], bv = b[sortBy];
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (typeof av === "number") return sortDir === "asc" ? av - bv : bv - av;
-    return sortDir === "asc" ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
-  });
-  return { sorted, sortBy, sortDir, handleSort };
-}
 
 function KpiCard({ label, value, sub, compare, loading }: { label: string; value: string | number; sub?: string; compare?: { current: number; previous: number } | null; loading?: boolean }) {
   function pctChangeText(cur: number, prev: number) {
@@ -58,15 +40,6 @@ function KpiCard({ label, value, sub, compare, loading }: { label: string; value
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="panel">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
 export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) => void }) {
   const queryClient = useQueryClient();
   const today = new Date().toISOString().split("T")[0];
@@ -79,14 +52,10 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
   const [filterSearch, setFilterSearch] = useState("");
   const [page, setPage] = useState(0);
 
-  function setPreset(label: string) {
-    const now = new Date();
-    if (label === "Hoje") { setStartDate(today); setEndDate(today); }
-    else if (label === "7D") { const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); setStartDate(d.toISOString().split("T")[0]); setEndDate(today); }
-    else if (label === "30D") { setStartDate(thirtyDaysAgo); setEndDate(today); }
-    else if (label === "Este mês") { setStartDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]); setEndDate(today); }
-    else if (label === "Mês passado") { const y = now.getFullYear(), m = now.getMonth(); const lastMonthStart = new Date(y, m - 1, 1); const lastMonthEnd = new Date(y, m, 0); setStartDate(lastMonthStart.toISOString().split("T")[0]); setEndDate(lastMonthEnd.toISOString().split("T")[0]); }
-    else if (label === "Todo período") { setStartDate(""); setEndDate(""); }
+  function setPreset(preset: DatePreset) {
+    const { startDate, endDate } = dateRangeFor(preset);
+    setStartDate(startDate);
+    setEndDate(endDate);
     setPage(0);
   }
 
@@ -334,12 +303,7 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
 
   return (
     <>
-      <header className="page-header">
-        <div>
-          <h1>Financeiro</h1>
-          <p>Fluxo de caixa: entradas, saídas e resultado do período.</p>
-        </div>
-      </header>
+      <PageHeader title="Financeiro" subtitle="Fluxo de caixa: entradas, saídas e resultado do período." />
 
       <section className="kpi-section">
         <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
@@ -356,17 +320,21 @@ export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) =
       </section>
 
       <div className="toolbar">
-        <div className="date-filter">
-          <button type="button" onClick={() => setPreset("Hoje")}>Hoje</button>
-          <button type="button" onClick={() => setPreset("7D")}>7D</button>
-          <button type="button" onClick={() => setPreset("30D")}>30D</button>
-          <button type="button" onClick={() => setPreset("Este mês")}>Este mês</button>
-          <button type="button" onClick={() => setPreset("Mês passado")}>Mês passado</button>
-          <button type="button" onClick={() => setPreset("Todo período")}>Todo período</button>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <span style={{ color: "#888" }}>até</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        </div>
+        <DatePresetBar
+          presets={[
+            { key: "today", label: "Hoje" },
+            { key: "7d", label: "7D" },
+            { key: "30d", label: "30D" },
+            { key: "month", label: "Este mês" },
+            { key: "lastmonth", label: "Mês passado" },
+            { key: "all", label: "Todo período", isAllTime: true },
+          ]}
+          onPresetChange={setPreset}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+        />
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
           <option value="">Todas categorias</option>
           {catList.map((c: any) => <option key={c.id}>{c.name}</option>)}

@@ -1,13 +1,20 @@
-import fs from "node:fs";
 import { db, literal } from "./db.js";
 import type { ParsedOrder } from "./xlsxParser.js";
-import { normalize, mapStatus } from "./importShared.js";
+import { mapStatus } from "./importShared.js";
 import { isDevolvido, getStatusId } from "./statusConfig.js";
+import {
+  expectedFinancialsFor,
+  matchProductByTitle,
+  normalizeFinancialsForStorage,
+  type ProductMatchInfo,
+} from "./financials.js";
+import { STATE_NAMES } from "./brazilianStates.js";
 
 export type ImportResult = {
   importedOrders: number;
   duplicatedOrders: number;
   updatedOrders: number;
+  ignoredOrders: number;
   createdCustomers: number;
   reusedCustomers: number;
   updatedCustomers: number;
@@ -40,6 +47,7 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
   let importedOrders = 0;
   let duplicatedOrders = 0;
   let updatedOrders = 0;
+  let ignoredOrders = 0;
   let createdCustomers = 0;
   let reusedCustomers = 0;
   let updatedCustomers = 0;
@@ -60,32 +68,9 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
   const productCache = new Map<string, { productId: number | null; costCents: number; sku?: string }>();
 
   // Pre-load all products for name-based matching
-  interface ProductInfo { id: number; name: string; nameNorm: string; sku: string; costCents: number; }
-  const productList: ProductInfo[] = (db.prepare("select id, name, sku, current_cost_cents from products").all() as any[]).map((r: any) => ({
-    id: r.id, name: r.name, nameNorm: normalize(r.name),
-    sku: r.sku, costCents: r.current_cost_cents,
+  const productList: ProductMatchInfo[] = (db.prepare("select id, name, sku, current_cost_cents from products").all() as any[]).map((r: any) => ({
+    id: r.id, name: r.name, sku: r.sku, costCents: r.current_cost_cents,
   }));
-
-  function matchProductByTitle(title: string): ProductInfo | null {
-    const stopwords = new Set(["de", "da", "do", "das", "dos", "para", "com", "uma", "um", "em", "no", "na", "por", "voce", "você", "sua", "seu", "mais", "pra", "que", "pro", "aos", "nas", "nos", "sem", "ate", "até"]);
-    const keywords = normalize(title).split(/[\s,;:/()\[\]–—\-]+/).filter(w => w.length > 2 && !stopwords.has(w));
-    if (keywords.length === 0) return null;
-    let bestScore = 0;
-    let best: ProductInfo | null = null;
-    for (const p of productList) {
-      if (!p.nameNorm.includes(keywords[0])) continue;
-      let score = 0;
-      for (const kw of keywords) {
-        if (p.nameNorm.includes(kw)) score++;
-      }
-      if (score > bestScore || (score === bestScore && best && p.nameNorm.length > best.nameNorm.length)) {
-        bestScore = score;
-        best = p;
-      }
-    }
-    const threshold = keywords.length === 2 ? 2 : Math.max(1, Math.ceil(keywords.length / 2));
-    return bestScore >= threshold ? best : null;
-  }
 
   const titleMatchCache = new Map<string, { productId: number | null; costCents: number; sku?: string }>();
 
@@ -117,7 +102,7 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
         const cacheKey = item.title.toLowerCase().trim();
         let prod = titleMatchCache.get(cacheKey);
         if (prod === undefined) {
-          const matched = matchProductByTitle(item.title);
+          const matched = matchProductByTitle(productList, item.title);
           prod = matched
             ? { productId: matched.id, costCents: matched.costCents, sku: matched.sku }
             : { productId: null, costCents: 0 };
@@ -154,8 +139,10 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
 
     if (hasMissingProduct && resolvedItems.some(i => !i.productId)) {
       const missingSkus = resolvedItems.filter(i => !i.productId).map(i => i.sku || i.title).join(", ");
-      errors.push({ line: 0, message: `Pedido ${checkKey} ignorado — produto(s) não cadastrado(s): ${missingSkus}` });
-      duplicatedOrders++;
+      const reason = `produto(s) não cadastrado(s): ${missingSkus}`;
+      errors.push({ line: 0, message: `Pedido ${checkKey} ignorado — ${reason}` });
+      console.warn(`[importMercadoLivre] Pedido ${checkKey} ignorado: ${reason}`);
+      ignoredOrders++;
       processedCount++; onProgress?.(processedCount, orders.length);
       continue;
     }
@@ -205,8 +192,10 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
 
     const customerResult = await ensureCustomer(order, customerCache);
     if (!customerResult) {
+      const reason = `cliente inválido (buyerName="${order.buyerName}")`;
       errors.push({ line: 0, message: `Cliente "${order.buyerName}" inválido, pedido ${checkKey} ignorado` });
-      duplicatedOrders++;
+      console.warn(`[importMercadoLivre] Pedido ${checkKey} ignorado: ${reason}`);
+      ignoredOrders++;
       processedCount++; onProgress?.(processedCount, orders.length);
       continue;
     }
@@ -261,31 +250,21 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
   ).run(fileName, orders.length, importedOrders, duplicatedOrders, updatedOrders, createdCustomers, reusedCustomers, updatedCustomers, importedItems, ignoredItems, errors.length, Number(durationSec), "completed");
   const logId = Number(logResult.lastInsertRowid);
 
-  return { importedOrders, duplicatedOrders, updatedOrders, createdCustomers, reusedCustomers, updatedCustomers, importedItems, ignoredItems, errors, logId };
+  return { importedOrders, duplicatedOrders, updatedOrders, ignoredOrders, createdCustomers, reusedCustomers, updatedCustomers, importedItems, ignoredItems, errors, logId };
 }
 
 function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: number, statusId: number) {
   const { order, customerId, checkKey, items } = ro;
 
-  /* Se devolvido, todos os valores financeiros são zero */
   const isReturned = isDevolvido(statusId);
-  const debugLine = `[buildOrderBatch] checkKey=${checkKey} statusId=${statusId} isReturned=${isReturned} productsRevenue=${order.financials.productsRevenue}\n`;
-  fs.appendFileSync("/tmp/importer_debug.txt", debugLine);
-  const productsRevenue = isReturned ? 0 : order.financials.productsRevenue;
-  const shippingTotalCents = isReturned ? 0 : Math.abs(order.financials.shippingFee);
-  const shippingCustomerCents = isReturned ? 0 : order.financials.shippingRevenue;
-  const platformFeeCents = isReturned ? 0 : Math.abs(order.financials.platformFee);
-  const discountCents = isReturned ? 0 : Math.abs(order.financials.discount);
-  const amountReceivedCents = isReturned ? 0 : order.financials.total;
-  const finSum = isReturned ? 0
-    : order.financials.productsRevenue + order.financials.shippingRevenue
-    + order.financials.platformFee + order.financials.shippingFee;
-  const gap = isReturned ? 0 : order.financials.total - finSum - order.financials.discount;
-  const cupomCents = isReturned ? 0 : gap < 0 ? -gap : 0;
-  const packagingCents = isReturned ? 0 : (() => {
-    const row = single("select value from settings where key = 'packaging_cost'") as any;
-    return row ? Number(row.value) || 0 : 0;
-  })();
+  const packagingCents = isReturned
+    ? 0
+    : (() => {
+        const row = single("select value from settings where key = 'packaging_cost'") as any;
+        return row ? Number(row.value) || 0 : 0;
+      })();
+
+  const normalized = normalizeFinancialsForStorage(order.financials, isReturned, packagingCents);
   const additionalCostsCents = 0;
 
   db.batch(`INSERT INTO orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) VALUES (${literal(storeId)}, ${literal(checkKey)}, ${literal(order.saleDate)}, ${literal(statusId)}, ${literal(order.statusDescription)}, ${literal(salesChannelId)}, ${literal(customerId)}, '', ${literal(order.delivery?.sentDate || null)}, ${literal(order.delivery?.deliveredDate || null)})`);
@@ -293,7 +272,7 @@ function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: num
   db.batch(`DELETE FROM _oi`);
   db.batch(`INSERT INTO _oi SELECT last_insert_rowid()`);
 
-  db.batch(`INSERT INTO order_financials (order_id, products_amount_cents, shipping_total_cents, shipping_customer_cents, platform_fee_cents, discount_cents, other_costs_cents, amount_received_cents, packaging_cents, additional_costs_cents) VALUES ((SELECT order_id FROM _oi), ${literal(productsRevenue)}, ${literal(shippingTotalCents)}, ${literal(shippingCustomerCents)}, ${literal(platformFeeCents)}, ${literal(discountCents)}, ${literal(cupomCents)}, ${literal(amountReceivedCents)}, ${literal(packagingCents)}, ${literal(additionalCostsCents)})`);
+  db.batch(`INSERT INTO order_financials (order_id, products_amount_cents, shipping_total_cents, shipping_customer_cents, platform_fee_cents, discount_cents, other_costs_cents, amount_received_cents, packaging_cents, additional_costs_cents) VALUES ((SELECT order_id FROM _oi), ${literal(normalized.productsAmountCents)}, ${literal(normalized.shippingTotalCents)}, ${literal(normalized.shippingCustomerCents)}, ${literal(normalized.platformFeeCents)}, ${literal(normalized.discountCents)}, ${literal(normalized.otherCostsCents)}, ${literal(normalized.amountReceivedCents)}, ${literal(normalized.packagingCents)}, ${literal(additionalCostsCents)})`);
 
   for (const item of items) {
     db.batch(`INSERT INTO order_items (order_id, product_id, sku, listing_title, quantity, sale_unit_price_cents, cost_unit_cents) VALUES ((SELECT order_id FROM _oi), ${literal(item.productId)}, ${literal(item.sku)}, ${literal(item.title)}, ${literal(item.quantity)}, ${literal(item.unitPrice)}, ${literal(isReturned ? 0 : item.costCents)})`);
@@ -311,38 +290,20 @@ function hasOrderChanged(existingId: number, data: {
   const current = single("select o.*, of.* from orders o join order_financials of on of.order_id = o.id where o.id = ?", [existingId]) as any;
   if (!current) return false;
 
-  // Check status
   if (current.status_id !== data.statusId) return true;
   if (String(current.status_description ?? "") !== data.statusDescription) return true;
 
-  // For returned orders, expected financials are zeroed
   const isReturned = isDevolvido(data.statusId);
-  const expectedProducts = isReturned ? 0 : data.financials.productsRevenue;
-  const expectedShippingTotal = isReturned ? 0 : Math.abs(data.financials.shippingFee);
-  const expectedShippingCustomer = isReturned ? 0 : data.financials.shippingRevenue;
-  const expectedFee = isReturned ? 0 : Math.abs(data.financials.platformFee);
-  const expectedDiscount = isReturned ? 0 : Math.abs(data.financials.discount);
+  const expected = expectedFinancialsFor(data.financials, isReturned, current.packaging_cents);
 
-  // Check financials
-  if (current.products_amount_cents !== expectedProducts) return true;
-  if (current.shipping_total_cents !== expectedShippingTotal) return true;
-  if (current.shipping_customer_cents !== expectedShippingCustomer) return true;
-  if (current.platform_fee_cents !== expectedFee) return true;
-  if (current.discount_cents !== expectedDiscount) return true;
+  if (current.products_amount_cents !== expected.products) return true;
+  if (current.shipping_total_cents !== expected.shippingTotal) return true;
+  if (current.shipping_customer_cents !== expected.shippingCustomer) return true;
+  if (current.platform_fee_cents !== expected.fee) return true;
+  if (current.discount_cents !== expected.discount) return true;
+  if (current.other_costs_cents !== expected.cupom) return true;
+  if (current.amount_received_cents !== expected.amountReceived) return true;
 
-  if (!isReturned) {
-    const finSum = data.financials.productsRevenue + data.financials.shippingRevenue
-                 + data.financials.platformFee + data.financials.shippingFee;
-    const gap = data.financials.total - finSum - data.financials.discount;
-    const cupomCents = gap < 0 ? -gap : 0;
-    if (current.other_costs_cents !== cupomCents) return true;
-    if (current.amount_received_cents !== data.financials.total) return true;
-  } else {
-    if (current.other_costs_cents !== 0) return true;
-    if (current.amount_received_cents !== 0) return true;
-  }
-
-  // Check items
   const currentItems = db.prepare("select sku, quantity, sale_unit_price_cents, cost_unit_cents from order_items where order_id = ? order by id").all([existingId]) as any[];
   if (currentItems.length !== data.items.length) return true;
   for (let i = 0; i < data.items.length; i++) {
@@ -351,7 +312,6 @@ function hasOrderChanged(existingId: number, data: {
     if (ci.sku !== ni.sku || ci.quantity !== ni.quantity || ci.sale_unit_price_cents !== ni.unitPrice) return true;
   }
 
-  // Check delivery
   const del = data.delivery;
   if (del) {
     if ((del.sentDate || null) !== (current.delivery_forecast_date || null)) return true;
@@ -375,19 +335,11 @@ function updateExistingOrder(existingId: number, data: {
   const newStatusName = single("select name from order_statuses where id = ?", [data.statusId]) as any;
 
   const isReturned = isDevolvido(finalStatusId);
-  const productsRevenue = isReturned ? 0 : data.financials.productsRevenue;
-  const shippingTotalCents = isReturned ? 0 : Math.abs(data.financials.shippingFee);
-  const shippingCustomerCents = isReturned ? 0 : data.financials.shippingRevenue;
-  const platformFeeCents = isReturned ? 0 : Math.abs(data.financials.platformFee);
-  const discountCents = isReturned ? 0 : Math.abs(data.financials.discount);
-  const amountReceivedCents = isReturned ? 0 : data.financials.total;
-  const finSum = isReturned ? 0
-    : data.financials.productsRevenue + data.financials.shippingRevenue
-    + data.financials.platformFee + data.financials.shippingFee;
-  const gap = isReturned ? 0 : data.financials.total - finSum - data.financials.discount;
-  const cupomCents = isReturned ? 0 : gap < 0 ? -gap : 0;
-  const currentPackaging = isReturned ? 0 : (single("select packaging_cents from order_financials where order_id = ?", [existingId]) as any)?.packaging_cents ?? 0;
-  const currentAdditional = isReturned ? 0 : (single("select additional_costs_cents from order_financials where order_id = ?", [existingId]) as any)?.additional_costs_cents ?? 0;
+  const existingFin = single("select packaging_cents, additional_costs_cents from order_financials where order_id = ?", [existingId]) as any;
+  const currentPackaging = existingFin?.packaging_cents ?? 0;
+  const currentAdditional = existingFin?.additional_costs_cents ?? 0;
+
+  const expected = expectedFinancialsFor(data.financials, isReturned, currentPackaging);
 
   const del = data.delivery;
   db.prepare(`update orders set status_id = ?, status_description = ?, delivery_forecast_date = coalesce(?, delivery_forecast_date), delivered_date = coalesce(?, delivered_date), updated_at = current_timestamp where id = ?`).run(
@@ -397,9 +349,9 @@ function updateExistingOrder(existingId: number, data: {
   db.prepare(
     "update order_financials set products_amount_cents = ?, shipping_total_cents = ?, shipping_customer_cents = ?, platform_fee_cents = ?, discount_cents = ?, other_costs_cents = ?, amount_received_cents = ?, packaging_cents = ?, additional_costs_cents = ? where order_id = ?"
   ).run(
-    productsRevenue, shippingTotalCents, shippingCustomerCents,
-    platformFeeCents, discountCents, cupomCents, amountReceivedCents,
-    currentPackaging, currentAdditional, existingId
+    expected.products, expected.shippingTotal, expected.shippingCustomer,
+    expected.fee, expected.discount, expected.cupom, expected.amountReceived,
+    isReturned ? 0 : currentPackaging, isReturned ? 0 : currentAdditional, existingId
   );
 
   const existingItems = db.prepare("select id, sku, cost_unit_cents from order_items where order_id = ?").all([existingId]) as any[];
@@ -557,16 +509,6 @@ function removePart(address: string, part: string): string {
   const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return address.replace(new RegExp(`[,;\\-–—|/\\s]*${escaped}[,;\\-–—|/\\s]*`, "gi"), " ");
 }
-
-const STATE_NAMES: Record<string, string> = {
-  AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas",
-  BA: "Bahia", CE: "Ceará", DF: "Distrito Federal", ES: "Espírito Santo",
-  GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul",
-  MG: "Minas Gerais", PA: "Pará", PB: "Paraíba", PR: "Paraná",
-  PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte",
-  RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina",
-  SE: "Sergipe", SP: "São Paulo", TO: "Tocantins",
-};
 
 function extractNumberAndComplement(text: string): { numero: string; complemento: string } {
   if (!text) return { numero: "", complemento: "" };

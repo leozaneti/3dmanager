@@ -41,7 +41,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("parser extrai orders do XLSX real", () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
     console.log("Total de pedidos parseados:", orders.length);
     expect(orders.length).toBeGreaterThan(0);
     for (const o of orders) {
@@ -51,7 +51,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("delivery.sentDate está preenchido para pedidos enviados", () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
     const withSent = orders.filter((o: any) => o.delivery?.sentDate);
     console.log("Pedidos com sentDate:", withSent.length);
     for (const o of withSent) {
@@ -62,7 +62,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("delivery.deliveredDate está preenchido para pedidos entregues", () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
     const withDelivered = orders.filter((o: any) => o.delivery?.deliveredDate);
     console.log("Pedidos com deliveredDate:", withDelivered.length);
     for (const o of withDelivered) {
@@ -81,7 +81,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("import novo — salva delivery_forecast_date e delivered_date", async () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
 
     const productMap = new Map<string, number>();
     for (const o of orders) {
@@ -115,7 +115,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("reimport — atualiza delivery_forecast_date e delivered_date", async () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
 
     const result = await importMercadoLivre(orders, "test.xlsx");
     console.log("Resultado do reimport (mesmo arquivo):", JSON.stringify({
@@ -135,7 +135,7 @@ describe("E2E import — coluna Entrega", () => {
 
   it("reimport com dados novos — atualiza delivered_date", async () => {
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
 
     const beforeRows = db.prepare("select external_order_id, delivered_date from orders").all() as any[];
     const beforeMap = new Map(beforeRows.map((r: any) => [r.external_order_id, r.delivered_date]));
@@ -180,7 +180,7 @@ describe("E2E import — coluna Entrega", () => {
     }
 
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
 
     const targetOrder = orders.find((o: any) => o.delivery?.sentDate);
     expect(targetOrder).toBeDefined();
@@ -228,7 +228,7 @@ describe("E2E import — coluna Entrega", () => {
     console.log(`Orders com delivery NULL: ${nulled.c}`);
 
     const buf = fs.readFileSync(XLSX_PATH);
-    const orders = parseMercadoLivreXlsx(buf);
+    const { orders } = parseMercadoLivreXlsx(buf);
 
     const result = await importMercadoLivre(orders, "reimport-after-fix.xlsx");
     console.log(`Resultado do reimport: updated=${result.updatedOrders}, duplicated=${result.duplicatedOrders}`);

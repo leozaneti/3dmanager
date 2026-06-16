@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Customer, money } from "./api";
 import { ModalShell } from "./ModalShell";
+import { Pagination } from "./Pagination";
 import { calculateKpisFromTotals } from "./finance";
+
+const HISTORY_PAGE_SIZE = 50;
 
 type Props = {
   customer: Customer;
@@ -13,10 +17,15 @@ type Props = {
 };
 
 export function CustomerDetailModal({ customer, open, onClose, onEdit, onViewOrder }: Props) {
+  const [historyPage, setHistoryPage] = useState(0);
+
   const summary = useQuery({
     queryKey: ["customer-summary", customer.id],
     queryFn: () =>
       api<{
+        totalOrders: number;
+        totalRevenueCents: number;
+        totalProfitCents: number;
         firstPurchase: string | null;
         lastPurchase: string | null;
       }>(`/customers/${customer.id}/summary`),
@@ -24,22 +33,26 @@ export function CustomerDetailModal({ customer, open, onClose, onEdit, onViewOrd
   });
 
   const ordersQuery = useQuery({
-    queryKey: ["orders", { customerId: customer.id }],
+    queryKey: ["orders", { customerId: customer.id, page: historyPage }],
     queryFn: () =>
       api<{
         data: any[];
+        total: number;
         filterTotals: any;
         activeOrderCount: number;
-      }>(`/orders?customerId=${customer.id}`),
+      }>(`/orders?customerId=${customer.id}&limit=${HISTORY_PAGE_SIZE}&offset=${historyPage * HISTORY_PAGE_SIZE}`),
     enabled: open
   });
 
   const data = summary.data;
   const ordersData = ordersQuery.data;
   const kpis = useMemo(() => {
-    if (!ordersData?.filterTotals) return null;
-    return calculateKpisFromTotals(ordersData.filterTotals);
-  }, [ordersData]);
+    if (!data) return null;
+    return {
+      grossRevenueCents: data.totalRevenueCents,
+      profitCents: data.totalProfitCents,
+    };
+  }, [data]);
 
   return (
     <ModalShell open={open} onClose={onClose} title={customer.name}
@@ -120,6 +133,7 @@ export function CustomerDetailModal({ customer, open, onClose, onEdit, onViewOrd
             <div className="order-card">
               <div className="order-card-title">Histórico de Pedidos</div>
               {ordersData ? (
+                <>
                 <div className="table-wrap">
                   <table>
                     <thead>
@@ -169,6 +183,14 @@ export function CustomerDetailModal({ customer, open, onClose, onEdit, onViewOrd
                     </tbody>
                   </table>
                 </div>
+                <Pagination
+                  page={historyPage}
+                  pageSize={HISTORY_PAGE_SIZE}
+                  total={ordersData.total}
+                  onPageChange={setHistoryPage}
+                  itemLabel="pedidos"
+                />
+                </>
               ) : (
                 <div style={{ padding: "20px 0", color: "#999", fontSize: "13px" }}>Carregando histórico...</div>
               )}
@@ -179,20 +201,16 @@ export function CustomerDetailModal({ customer, open, onClose, onEdit, onViewOrd
           <div className="modal-order-sidebar">
             <div className="sidebar-section">
               <div className="sidebar-label">Resumo do Cliente</div>
-              {data && ordersData ? (
+              {data ? (
                 <>
                   <div className="sidebar-row">
                     <span>Pedidos</span>
-                    <strong>{ordersData.activeOrderCount}</strong>
+                    <strong>{data.totalOrders}</strong>
                   </div>
                   <div className="sidebar-divider" />
                   <div className="sidebar-row">
                     <span>Receita Total</span>
                     <strong>{money(kpis?.grossRevenueCents ?? 0)}</strong>
-                  </div>
-                  <div className="sidebar-row">
-                    <span>Resultado da Venda</span>
-                    <strong>{money(kpis?.saleResultCents ?? 0)}</strong>
                   </div>
                   <div className="sidebar-row">
                     <span>Lucro Total</span>
