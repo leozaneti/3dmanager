@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/SQLite-3-003b57?logo=sqlite" />
     <img src="https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript" />
     <br/>
-    <img src="https://img.shields.io/badge/tests-227_passing-brightgreen" />
+    <img src="https://img.shields.io/badge/tests-244_passing-brightgreen" />
     <img src="https://img.shields.io/badge/license-private-lightgrey" />
   </p>
 </div>
@@ -184,7 +184,7 @@ Pedidos com status `Devolvido` têm **todos** os valores financeiros zerados (es
 
 A regra é centralizada em `server/financials.ts` e aplicada em:
 - `importer.ts` (insert + update de pedidos importados do ML)
-- `index.ts` (PUT `/api/orders/:id/status` quando canal = Mercado Livre)
+- `routes/orders.ts` (PUT `/api/orders/:id/status` quando canal = Mercado Livre)
 - `importerMp.ts` (atualiza o `other_costs_cents` no DRE em caso de estorno)
 </details>
 
@@ -228,10 +228,10 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 ```
 3D Manager
 ├── server/                                 # Backend (Fastify + TypeScript)
-│   ├── index.ts                            # ~2144 linhas: todas as rotas da API
-│   ├── db.ts                               # Schema, migrações, seed, conexão SQLite
-│   ├── calculations.ts                     # Fórmulas financeiras de pedido (usado pelo frontend via re-export)
-│   ├── financials.ts                       # ⭐ Regra "Devolvido zera" + match product by title + cupom
+    │   ├── index.ts                            # Entry point (80 linhas): Fastify setup, plugins, route registration
+    │   ├── db.ts                               # Schema, migrações, seed, conexão SQLite
+    │   ├── calculations.ts                     # Fórmulas financeiras de pedido (re-exportado para o frontend via src/ui/finance.ts)
+    │   ├── financials.ts                       # ⭐ Regra "Devolvido zera" + match product by title + cupom
 │   ├── brazilianStates.ts                  # ⭐ UF → nome completo (fonte única)
 │   ├── importer.ts                         # Importação de pedidos do Mercado Livre (XLSX)
 │   ├── importerMp.ts                       # Importação de extrato Mercado Pago (CSV)
@@ -240,6 +240,18 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 │   ├── statusConfig.ts                     # Transições válidas de status de pedido
 │   ├── auth.ts                             # Hash de senha + sessão em memória
 │   ├── middleware/auth.ts                  # Bloqueia rotas /api/* se AUTH_ENABLED=true
+│   ├── routes/                             # Rotas modulares da API (ver server/routes/README.md)
+│   │   ├── orders.ts                       # CRUD de pedidos + transições de status + auto-estorno
+│   │   ├── products.ts                     # CRUD de produtos + recálculo retroativo
+│   │   ├── customers.ts                    # CRUD de clientes + segmentação
+│   │   ├── imports.ts                      # Upload e preview de XLSX/CSV
+│   │   ├── dashboard.ts                    # Agregações de KPI
+│   │   ├── finance.ts                      # Transações financeiras + DRE
+│   │   ├── todos.ts                        # Kanban de tarefas
+│   │   ├── admin.ts                        # Meta, stores, settings, audit-log
+│   │   ├── auth.ts                         # Login, logout, status de sessão
+│   │   ├── backups.ts                      # Listagem e restore de backups
+│   │   └── helpers.ts                      # Wrappers SQL compartilhados
 │   └── scripts/
 │       ├── backup.ts                       # Backup manual do banco de produção
 │       ├── seed-fake.ts                    # Geração de dados fake para testes
@@ -256,7 +268,7 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 │   ├── shared/                             # ⭐ Código compartilhado front/back (espelhado)
 │   │   └── brazilianStates.ts              # Lista de UFs
 │   └── ui/
-│       ├── App.tsx                         # 114 linhas: auth state + sidebar + routing
+│       ├── App.tsx                         # 125 linhas: auth state + sidebar + routing
 │       ├── api.ts                          # Tipos compartilhados + função `api()` (FormData-safe)
 │       ├── finance.ts                      # Re-export de `calculateOrderTotals`
 │       ├── dashboard-types.ts              # Tipos do Dashboard
@@ -386,14 +398,14 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 | `npm run build` | Compila TypeScript e empacota o frontend |
 | `npm run start` | Sobe servidor de produção (porta 3333) |
 | `npm run backup` | Backup manual do banco de produção |
-| `npm test` | Roda os 227 testes (vitest, single-run) |
+| `npm test` | Roda os 244 testes (vitest, single-run) |
 | `npm run test:watch` | Roda os testes em watch mode |
 
 ---
 
 ## Testes
 
-**Total: 227 testes passando**, distribuídos em 18 arquivos (16 backend + 5 frontend).
+**Total: 244 testes passando**, distribuídos em 20 arquivos (15 backend + 5 frontend).
 
 ### Backend (`server/__tests__/`)
 
@@ -408,8 +420,10 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 | `search.test.ts` | 14 | Busca textual + filtros |
 | `dashboard.test.ts` | 8 | Endpoint `/api/dashboard` |
 | `transactions.test.ts` | 16 | Receitas/despesas + DRE + categorias |
-| `customer-summary.test.ts` | 3 | Agregação SQL de summary |
+| `customer-summary.test.ts` | 3 | Agregação SQL de summary (incl. perf. 1000 pedidos) |
 | `import-delivery-e2e.test.ts` | 10 | E2E: import de delivery dates |
+| `import-ignored-orders.test.ts` | 5 | ignoredOrders vs duplicatedOrders na import ML |
+| `parse-date.test.ts` | 12 | Parse de data Excel (série) ↔ ISO |
 | `formula-consistency.test.ts` | 7 | Backend = frontend em fórmulas |
 | `wait-for-port.test.ts` | 3 | Helper de port-wait |
 
@@ -436,11 +450,11 @@ Os testes usam `data/test.sqlite` (configurado em `vitest.config.ts` via `env: {
 
 ## CI/CD
 
-Workflow do GitHub Actions em `.github/workflows/ci.yml` roda em todo PR e push para `main`/`dev`:
+Workflow do GitHub Actions em `.github/workflows/ci.yml` roda em todo PR e push para `main`:
 
-- ✅ `tsc --noEmit` em ambos os `tsconfig` (frontend e backend)
-- ✅ `vitest` (227 testes, ~3-4 min incluindo o teste de performance de 1000 pedidos)
-- ✅ `npm run build` (build de produção)
+- ✅ `npm ci` (instala deps exatas do lockfile)
+- ✅ `npm run build` (compila backend via `tsc -p tsconfig.server.json` + frontend via Vite — falha se houver erro de tipo)
+- ✅ `npm test` (244 testes, ~1-2 min — o teste de performance de 1000 pedidos leva ~50s)
 
 Para ativar proteção de branch: GitHub → Settings → Branches → main → marcar "Require status checks to pass".
 
@@ -462,7 +476,7 @@ main (produção) ←── merge ── dev (desenvolvimento)
 5. Build: `npm run build`
 6. Sobe: `npm run start`
 
-Para mais detalhes, veja [`docs/desenvolvimento.md`](docs/development.md) e [`docs/arquitetura.md`](docs/arquitetura.md).
+Para mais detalhes, veja [`docs/development.md`](docs/development.md) e [`docs/architecture.md`](docs/architecture.md).
 
 ---
 

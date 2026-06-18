@@ -1,6 +1,11 @@
 import { read, utils } from "xlsx";
 import { getStatusId } from "./statusConfig.js";
 
+/**
+ * Marcadores usados para localizar a linha de cabeçalho real do XLSX do ML.
+ * A planilha tem linhas de título/intro acima do header; identificamos o
+ * header procurando a primeira linha que contém todos estes 3 campos.
+ */
 const HEADER_CANDIDATES = ["N.º de venda", "Pedido de compra", "Data da venda"];
 
 export type ParsedRow = Record<string, string | number | undefined>;
@@ -48,6 +53,14 @@ export type XlsxParseResult = {
   infoRows: { rowNumber: number; error: string }[];
 };
 
+/**
+ * Faz o parse de um XLSX exportado do Mercado Livre e retorna os pedidos
+ * estruturados. Detecta:
+ *  - linha de header (descartando linhas de título acima)
+ *  - "Pacote de diversos" (vários SKUs na mesma venda) → 1 pedido com N itens
+ *  - data de venda e data de entrega (formato serial Excel ou string)
+ * Linhas sem campos mínimos retornam em `infoRows` (não lançam exceção).
+ */
 export function parseMercadoLivreXlsx(data: Buffer): XlsxParseResult {
   const workbook = read(data, { type: "array" });
   const sheetName = workbook.SheetNames[0];
@@ -409,6 +422,13 @@ const MONTHS_PT: Record<string, string> = {
   setembro: "09", outubro: "10", novembro: "11", dezembro: "12",
 };
 
+/**
+ * Normaliza datas do XLSX do ML para `YYYY-MM-DD`. Aceita:
+ *  - serial Excel (número de dias desde 1899-12-30) — bug famoso do ano 1900
+ *  - string em pt-BR tipo "15 jan. 2024" ou "15/01/2024"
+ *  - ISO `YYYY-MM-DD` (já normalizada)
+ * Retorna `""` para entrada vazia.
+ */
 export function parseExcelDate(value: string | Date): string {
   if (!value) return "";
   if (typeof value !== "string") {

@@ -85,6 +85,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { where: conditions.length ? `where ${conditions.join(" and ")}` : "", params };
   }
 
+  /** GET /api/orders — lista paginada/filtrada de pedidos. Suporta filtros:
+   *  customerId, storeId, channelId, statusId, from, to, search, sort, dir, page, pageSize. */
   app.get("/api/orders", (request) => {
     const query = request.query as Record<string, unknown>;
     const { where, params } = orderListWhere(query);
@@ -192,6 +194,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { data, total, activeTotal, filterTotals, activeOrderCount, statusCounts };
   });
 
+  /** GET /api/orders/:id — pedido + itens + valores calculados. */
   app.get("/api/orders/:id", (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     const order = get(
@@ -229,6 +232,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { ...(order as object), items };
   });
 
+  /** POST /api/orders — cria pedido manual. Aplica "Devolvido zera" se statusId
+   *  inicial já for Devolvido (caso raro; normalmente entram como "Novo"). */
   app.post("/api/orders", async (request, reply) => {
     const data = orderSchema.parse(request.body);
     const orderId = db.transaction<number>(() => {
@@ -281,6 +286,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { id: orderId };
   });
 
+  /** PUT /api/orders/:id — edição manual de pedido. Não mexe em itens aqui
+   *  (use DELETE + POST para re-criar, ou endpoints específicos de itens). */
   app.put("/api/orders/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     const data = orderSchema.parse(request.body);
@@ -340,6 +347,9 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { id };
   });
 
+  /** GET /api/status-transitions — mapeamento de transições válidas (id → ids
+   *  permitidos), derivado de `statusConfig.ts`. Usado pela UI para habilitar
+   *  botões de mudança de status. */
   app.get("/api/status-transitions", () => {
     const statuses = db.prepare("select id, name from order_statuses where active = 1 order by sort_order").all([]) as { id: number; name: string }[];
     const transitions: Record<number, { id: number; name: string }[]> = {};
@@ -355,6 +365,10 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return transitions;
   });
 
+  /** PUT /api/orders/:id/status — troca de status. Aplica "Devolvido zera" via
+   *  `zeroFinancialsSetClause()` quando o novo status for Devolvido. Esta é
+   *  a 3ª peça da regra centralizada em `server/financials.ts` (junto com
+   *  `importer.ts` insert/update e `importerMp.ts` estornos). */
   app.put("/api/orders/:id/status", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     const { statusId } = z.object({ statusId: z.coerce.number().int().positive() }).parse(request.body);
@@ -386,6 +400,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** DELETE /api/orders/:id — exclusão física. Cascata remove `order_financials`
+   *  e `order_items` (definido no schema). */
   app.delete("/api/orders/:id", async (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     db.prepare("delete from order_items where order_id = ?").run(id);
@@ -394,6 +410,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** POST /api/orders/bulk-delete — exclusão em lote. Recebe `{ ids: number[] }`. */
   app.post("/api/orders/bulk-delete", async (request) => {
     const { ids } = z.object({ ids: z.array(z.number().int().positive()).nonempty() }).parse(request.body);
     for (const id of ids) {
@@ -404,6 +421,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     return { ok: true, deleted: ids.length };
   });
 
+  /** GET /api/orders/totals — soma de produtos/frete/custo no período,
+   *  considerando os mesmos filtros de `/api/orders`. Usado pelos KPIs. */
   app.get("/api/orders/totals", (request) => {
     const query = request.query as Record<string, unknown>;
     const ids = String(query.ids ?? "").split(",").map(Number).filter((n) => n > 0);

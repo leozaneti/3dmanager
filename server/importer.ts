@@ -10,6 +10,15 @@ import {
 } from "./financials.js";
 import { STATE_NAMES } from "./brazilianStates.js";
 
+/**
+ * Importação de pedidos a partir de um XLSX do Mercado Livre já parseado.
+ *
+ * Fluxo: resolve cliente (create/reuse/merge) e produto (SKU → fallback por
+ * título via `matchProductByTitle`), monta batch, e insere/atualiza via
+ * `db.transaction`. Aplica "Devolvido zera" pelos helpers de `financials.ts`.
+ * Pedidos com SKU desconhecido ou cliente inválido vão para `ignoredOrders`;
+ * já existentes com mesmos dados vão para `duplicatedOrders`.
+ */
 export type ImportResult = {
   importedOrders: number;
   duplicatedOrders: number;
@@ -253,6 +262,11 @@ export async function importMercadoLivre(orders: ParsedOrder[], fileName: string
   return { importedOrders, duplicatedOrders, updatedOrders, ignoredOrders, createdCustomers, reusedCustomers, updatedCustomers, importedItems, ignoredItems, errors, logId };
 }
 
+/**
+ * Constrói os parâmetros para `insert` de um pedido aplicando a regra
+ * "Devolvido zera" via `normalizeFinancialsForStorage`. `packagingCents` é
+ * estimado só para pedidos não-devolvidos (devolvidos sempre zeram).
+ */
 function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: number, statusId: number) {
   const { order, customerId, checkKey, items } = ro;
 
@@ -279,6 +293,12 @@ function buildOrderBatch(ro: ResolvedOrder, storeId: number, salesChannelId: num
   }
 }
 
+/**
+ * Compara um pedido já gravado com o que viria do reimport. Retorna `true`
+ * se algum campo relevante divergir — incluindo comparação financeira
+ * com "Devolvido zera" aplicado via `expectedFinancialsFor`. Usado para
+ * decidir se vale o custo de um `UPDATE` no reimport.
+ */
 function hasOrderChanged(existingId: number, data: {
   statusId: number;
   statusDescription: string;
@@ -321,6 +341,11 @@ function hasOrderChanged(existingId: number, data: {
   return false;
 }
 
+/**
+ * Aplica `UPDATE` num pedido já existente a partir de dados reimportados.
+ * Reaplica "Devolvido zera" via `expectedFinancialsFor` para garantir
+ * consistência caso o status mude na nova planilha.
+ */
 function updateExistingOrder(existingId: number, data: {
   statusId: number;
   statusDescription: string;
@@ -385,6 +410,12 @@ function updateExistingOrder(existingId: number, data: {
 
 type CustomerStatus = { id: number; status: 'created' | 'reused' | 'updated' };
 
+/**
+ * Resolve o cliente de um pedido: dedup por documento (CPF/CNPJ), com
+ * fallback por nome+CEP. Retorna `null` se o comprador vier sem nome
+ * (pedido vai para `ignoredOrders`). Atualiza o `cache` para evitar
+ * repetir a query em pedidos do mesmo comprador.
+ */
 async function ensureCustomer(order: ParsedOrder, cache: Map<string, number>): Promise<CustomerStatus | null> {
   if (!order.buyerName) return null;
 
@@ -448,6 +479,8 @@ async function ensureCustomer(order: ParsedOrder, cache: Map<string, number>): P
   return { id, status: 'created' };
 }
 
+/** Wrappers finos sobre `db.prepare` para uso no import. `singleVal` é para
+ *  escalar (ex: `select id from ...`); `single` é para um único registro. */
 function singleVal(sql: string, params: unknown[] = []): number | undefined {
   const rows = db.prepare(sql).all(params);
   if (rows.length === 0) return undefined;
@@ -460,12 +493,18 @@ function single(sql: string, params: unknown[] = []): Record<string, unknown> | 
   return rows && rows.length > 0 ? (rows[0] as Record<string, unknown>) : undefined;
 }
 
+/** True se a string for vazia ou só contiver espaços/hífens. */
 function isAllEmpty(value: string | undefined): boolean {
   return !value || value.replace(/[\s-]/g, "").length === 0;
 }
 
 const viaCepCache = new Map<string, { logradouro: string; bairro: string } | null>();
 
+/**
+ * Consulta a API do ViaCEP para completar endereço quando o ML envia só o
+ * CEP. Cacheia em memória (mesma instância) para evitar refetch no lote.
+ * Retorna `null` se CEP for inválido ou a API não responder.
+ */
 async function fetchAddressByCEP(cep: string): Promise<{ logradouro: string; bairro: string } | null> {
   const clean = cep.replace(/\D/g, "");
   if (clean.length !== 8) return null;
@@ -528,6 +567,11 @@ function extractNumberAndComplement(text: string): { numero: string; complemento
   return { numero: text.trim(), complemento: "" };
 }
 
+/**
+ * Decompõe a string de endereço do ML em (logradouro, número, complemento,
+ * bairro, cidade, UF). Usa o `knownCidade` como âncora porque o ML geralmente
+ * coloca a cidade/UF no fim da string em formato separado.
+ */
 async function parseAddress(
   fullAddress: string,
   knownCidade: string,

@@ -30,7 +30,7 @@ Acesse `http://localhost:5173`. O backend serve a API em `http://localhost:3333/
 ### Sanity check
 
 ```bash
-# Deve mostrar 227 testes passando
+# Deve mostrar 244 testes passando
 npm test
 
 # Deve compilar sem erros (em ambos tsconfigs)
@@ -45,7 +45,7 @@ npx tsc --noEmit
 |---------|-----------|
 | `npm run dev` | Sobe backend + frontend com hot-reload |
 | `npm run dev:auth` | Mesmo, mas com autenticação habilitada (precisa setup de senha) |
-| `npm test` | Roda os 227 testes (single-run) |
+| `npm test` | Roda os 244 testes (single-run) |
 | `npm run test:watch` | Watch mode (TDD) |
 | `npm run build` | Build de produção (gera `dist/` + `dist-server/`) |
 | `npm run start` | Roda build de produção (porta 3333) |
@@ -65,7 +65,8 @@ sqlite3 data/dev.sqlite
 
 ```
 server/                 # Backend
-├── index.ts            # Rotas da API (~2144 linhas, divididas por seção)
+├── index.ts            # Entry point: Fastify setup, plugins, route registration (80 linhas)
+├── routes/             # Rotas modulares da API (orders, products, customers, imports, dashboard, finance, todos, admin, auth, backups)
 ├── db.ts               # Schema, migrações, seed
 ├── calculations.ts     # Fórmulas financeiras de pedido
 ├── financials.ts       # ⭐ Regra "Devolvido zera" — sempre edite aqui
@@ -73,7 +74,7 @@ server/                 # Backend
 ├── importerMp.ts       # Importação extrato MP
 ├── xlsxParser.ts       # Parse de XLSX
 ├── statusConfig.ts     # Transições de status
-└── __tests__/          # 16 arquivos, 154 testes
+└── __tests__/          # 15 arquivos, 191 testes (ver detalhes em README.md)
 
 src/
 ├── main.tsx            # Entry point
@@ -101,20 +102,25 @@ Cenário: você quer criar uma view "Relatórios" com estatísticas avançadas.
 ### 4.1. Backend: criar endpoint
 
 ```typescript
-// server/index.ts
-app.get("/api/reports/advanced", (request) => {
-  const fromDate = String(request.query.from ?? "");
-  const toDate = String(request.query.to ?? "");
-  // regra de negócio aqui (de preferência, delegar para server/financials.ts ou similar)
-  return all(`
-    select
-      strftime('%Y-%m', sale_date) as month,
-      sum(products_amount_cents) as revenue
-    from orders
-    where sale_date >= ? and sale_date <= ?
-    group by month
-  `, [fromDate, toDate]);
-});
+// server/routes/reports.ts (novo arquivo, registrar em server/index.ts)
+import type { FastifyInstance } from "fastify";
+import { all } from "./helpers.js";
+
+export default function registerReportsRoutes(app: FastifyInstance) {
+  app.get("/api/reports/advanced", (request) => {
+    const fromDate = String(request.query.from ?? "");
+    const toDate = String(request.query.to ?? "");
+    // regra de negócio aqui (de preferência, delegar para server/financials.ts ou similar)
+    return all(`
+      select
+        strftime('%Y-%m', sale_date) as month,
+        sum(products_amount_cents) as revenue
+      from orders
+      where sale_date >= ? and sale_date <= ?
+      group by month
+    `, [fromDate, toDate]);
+  });
+}
 ```
 
 ### 4.2. Frontend: criar view
@@ -256,13 +262,11 @@ describe("isVipOrder", () => {
 ### 5.3. Usar na rota
 
 ```typescript
-// server/index.ts
-import { isVipOrder } from "./businessRules.js";
+// server/routes/orders.ts — adicionar na função existente
+import { isVipOrder } from "../businessRules.js";
 
-app.get("/api/orders", (request) => {
-  // ... query ...
-  return rows.map((row) => ({ ...row, isVip: isVipOrder(row.productsAmountCents) }));
-});
+// no handler GET /api/orders existente:
+return rows.map((row) => ({ ...row, isVip: isVipOrder(row.productsAmountCents) }));
 ```
 
 ### 5.4. Expor no tipo e usar no frontend
@@ -437,7 +441,7 @@ npx vitest server/__tests__/financials.test.ts
 
 ## 10. Checklist antes de abrir PR
 
-- [ ] `npm test` passa (227 testes)
+- [ ] `npm test` passa (244 testes)
 - [ ] `npx tsc --noEmit` não retorna erros
 - [ ] Se adicionou rota nova: schema Zod validado
 - [ ] Se adicionou regra de negócio: testada (pura ou via integração)

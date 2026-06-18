@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { db } from "./db.js";
 
+/**
+ * Importação de extrato/settlement do Mercado Pago (CSV).
+ *
+ * Fluxo em 2 etapas:
+ *  1. `previewMpCsv` — parseia o CSV e vincula cada transação a um pedido
+ *     via `PACK_ID` ou `ORDER_ID`. Marca divergências entre valor recebido
+ *     e esperado. Transações com `DISPUTE`/`DISPUTE_SHIPPING` viram
+ *     estornos a aplicar.
+ *  2. `confirmMpImport` — aplica o que o usuário confirmou no preview.
+ *
+ * Estornos atualizam `other_costs_cents` no DRE sem mexer no pedido original
+ * (o estorno é uma transação financeira separada).
+ */
 interface MpCsvRow {
   sourceId: string;
   realAmount: number;
@@ -63,6 +76,11 @@ export interface MpImportResult {
   errors: { line: number; message: string }[];
 }
 
+/**
+ * Parser CSV simples (sem aspas escapadas) — o settlement do MP não usa
+ * aspas em campos numéricos, então isso é suficiente. Lê a 1ª linha como
+ * header e mapeia colunas por nome canônico.
+ */
 function parseCsv(text: string): MpCsvRow[] {
   const lines = text.split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
@@ -124,6 +142,11 @@ function parseCsv(text: string): MpCsvRow[] {
   return rows;
 }
 
+/**
+ * Faz o parse e devolve o preview (linhas vinculáveis + warnings). Cacheia
+ * o resultado por `token` para o `confirmMpImport` reaproveitar.
+ * Não grava nada no banco — só lê.
+ */
 export function previewMpCsv(text: string): MpPreviewData {
   const allRows = parseCsv(text);
 
@@ -259,6 +282,13 @@ export function previewMpCsv(text: string): MpPreviewData {
   };
 }
 
+/**
+ * Tenta vincular uma linha do extrato MP a um pedido local. Estratégia:
+ *  1. PACK_ID → group_id (pacote do ML) bate com `external_order_id`
+ *  2. ORDER_ID → fallback por id direto
+ *  3. PACK_ID (modo settlement) → tenta todos os IDs dentro do pacote
+ * Retorna `null` se nenhuma estratégia casar.
+ */
 function resolveOrder(r: MpCsvRow): { id: number; externalId: string } | null {
   const packId = r.packId.trim();
   const orderId = r.orderId.trim();
@@ -278,6 +308,12 @@ function resolveOrder(r: MpCsvRow): { id: number; externalId: string } | null {
 
 const mpImportCache = new Map<string, { rows: MpPreviewRow[]; timestamp: number }>();
 
+/**
+ * Confirma o import das linhas selecionadas no preview. Cria transações
+ * financeiras (`income` para recebimentos, `expense` para estornos) e
+ * atualiza `other_costs_cents` em pedidos com estorno. O `token` deve
+ * estar no `mpImportCache` (TTL de 10 min, ver `setTimeout` no fim).
+ */
 export function confirmMpImport(token: string, selectedKeys: string[]): MpImportResult {
   const cached = mpImportCache.get(token);
   if (!cached) throw new Error("Sessão expirada. Faça o preview novamente.");

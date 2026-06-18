@@ -78,7 +78,7 @@ npm run dev      # sobe backend + frontend com hot-reload
 # 1. Finalizar desenvolvimento na dev
 git checkout dev
 # ... faz as alterações, testa com npm run dev ...
-npm test         # garantir que 227 testes passam
+npm test         # garantir que 244 testes passam
 
 # 2. Voltar pra main e mesclar (via PR, idealmente)
 git checkout main
@@ -105,11 +105,11 @@ npm run start
 
 ## CI/CD (GitHub Actions)
 
-Workflow em `.github/workflows/ci.yml` roda automaticamente em todo PR e push para `main`/`dev`:
+Workflow em `.github/workflows/ci.yml` roda automaticamente em todo PR e push para `main`:
 
-- ✅ `tsc --noEmit` (type-check de frontend + backend)
-- ✅ `npm test` (227 testes, ~3-4 min)
-- ✅ `npm run build` (valida build de produção)
+- ✅ `npm ci` (instala deps exatas do lockfile)
+- ✅ `npm run build` (compila backend via `tsc -p tsconfig.server.json` + frontend via Vite — falha se houver erro de tipo)
+- ✅ `npm test` (244 testes, ~1-2 min — o teste de performance de 1000 pedidos leva ~50s)
 
 Para ativar branch protection: GitHub → Settings → Branches → main → "Require status checks to pass".
 
@@ -139,9 +139,8 @@ O arquivo `.gitignore` ignora:
 - `data/*.sqlite` (dados não vão pro GitHub — incluindo `data/test.sqlite` que os testes criam/destroem)
 - `data/*.db`
 - `data/backups/`
-- `*.log`
+- `*.log` (cobre também `server_stderr.log` do `tsc` watch em dev)
 - `.env`
-- `server_stderr.log` (log do `tsc` watch em dev)
 
 ---
 
