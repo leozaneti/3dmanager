@@ -7,6 +7,11 @@ import { createRequire } from "node:module";
  *
  * Acesso in-process sem forks — substitui o antigo `execFileSync("sqlite3", ...)`.
  * `node:sqlite` é built-in desde Node 22.5.
+ *
+ * `createRequire` é necessário porque Vite/Vitest ainda não conhece
+ * `node:sqlite` como builtin (introduzido após Vite 5.4). Em produção,
+ * o import direto funcionaria; o require dinâmico contorna a transformação
+ * do Vite em testes.
  */
 
 const env = process.env.DB_ENV || "dev";
