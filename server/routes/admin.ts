@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../db.js";
-import { all, get, boolRow } from "./helpers.js";
 
 export default function registerAdminRoutes(app: FastifyInstance) {
   const storeSchema = z.object({
@@ -10,12 +9,12 @@ export default function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/meta", () => ({
-    stores: all("select id, name, active from stores order by name").map(boolRow),
-    channels: all("select id, name, active from sales_channels where active = 1 order by name"),
-    statuses: all("select id, name, sort_order as sortOrder, is_final as isFinal from order_statuses where active = 1 order by sort_order"),
+    stores: db.prepare("select id, name, active from stores order by name").all().map(row => ({ ...row, active: Boolean(row.active) })),
+    channels: db.prepare("select id, name, active from sales_channels where active = 1 order by name").all(),
+    statuses: db.prepare("select id, name, sort_order as sortOrder, is_final as isFinal from order_statuses where active = 1 order by sort_order").all(),
   }));
 
-  app.get("/api/stores", () => all("select id, name, active from stores order by name").map(boolRow));
+  app.get("/api/stores", () => db.prepare("select id, name, active from stores order by name").all().map(row => ({ ...row, active: Boolean(row.active) })));
 
   app.post("/api/stores", async (request, reply) => {
     const data = storeSchema.parse(request.body);
@@ -27,7 +26,7 @@ export default function registerAdminRoutes(app: FastifyInstance) {
 
   app.put("/api/stores/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existing = get("select id from stores where id = ?", [id]);
+    const existing = db.prepare("select id from stores where id = ?").get(id);
     if (!existing) {
       reply.code(404);
       return { error: "Loja não encontrada" };
@@ -44,7 +43,7 @@ export default function registerAdminRoutes(app: FastifyInstance) {
 
   app.delete("/api/stores/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existingOrder = get("select 1 from orders where store_id = ? limit 1", [id]);
+    const existingOrder = db.prepare("select 1 from orders where store_id = ? limit 1").get(id);
     if (existingOrder) {
       reply.code(409);
       return { error: "Não é possível excluir loja com pedidos existentes." };
@@ -55,7 +54,7 @@ export default function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/settings", () => {
-    const rows = all<{ key: string; value: string; description: string }>("select key, value, description from settings where key != 'admin_password_hash' and key not like 'schema_%'");
+    const rows = db.prepare("select key, value, description from settings where key != 'admin_password_hash' and key not like 'schema_%'").all() as { key: string; value: string; description: string }[];
     const order = ["pla_price_per_kg", "energy_cost_per_hour", "machine_value", "machine_lifespan_hours", "maintenance_factor", "error_rate", "packaging_cost"];
     rows.sort((a: any, b: any) => {
       const ia = order.indexOf(a.key);

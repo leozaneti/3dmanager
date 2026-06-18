@@ -313,35 +313,30 @@ create table if not exists import_log (
     );
   `);
 
-  addColumnIfMissing("products", "weight_grams", "integer not null default 0");
-  addColumnIfMissing("products", "print_time_minutes", "integer not null default 0");
-  addColumnIfMissing("products", "additional_cost_cents", "integer not null default 0");
-
-  addColumnIfMissing("customers", "cep", "text");
-  addColumnIfMissing("customers", "logradouro", "text");
-  addColumnIfMissing("customers", "numero", "text");
-  addColumnIfMissing("customers", "complemento", "text");
-  addColumnIfMissing("customers", "bairro", "text");
-  addColumnIfMissing("customers", "cidade", "text");
-  addColumnIfMissing("customers", "estado", "text");
-  addColumnIfMissing("import_log", "updated", "integer not null default 0");
-  addColumnIfMissing("order_financials", "packaging_cents", "integer not null default 0");
-  addColumnIfMissing("order_financials", "additional_costs_cents", "integer not null default 0");
-
-  addColumnIfMissing("orders", "delivery_forecast_date", "text");
-  addColumnIfMissing("orders", "delivered_date", "text");
-
-  const prodStatus = db.prepare("select id from order_statuses where name = 'Produção' or name = 'Producao'").get() as any;
-  if (prodStatus) {
-    const oldId = prodStatus.id;
-    db.prepare("update orders set status_id = 1, updated_at = current_timestamp where status_id = ?").run(oldId);
-    db.prepare("update order_statuses set active = 0 where id = ?").run(oldId);
+  const migrations: [string, string, string][] = [
+    ["products", "weight_grams", "integer not null default 0"],
+    ["products", "print_time_minutes", "integer not null default 0"],
+    ["products", "additional_cost_cents", "integer not null default 0"],
+    ["customers", "cep", "text"],
+    ["customers", "logradouro", "text"],
+    ["customers", "numero", "text"],
+    ["customers", "complemento", "text"],
+    ["customers", "bairro", "text"],
+    ["customers", "cidade", "text"],
+    ["customers", "estado", "text"],
+    ["import_log", "updated", "integer not null default 0"],
+    ["order_financials", "packaging_cents", "integer not null default 0"],
+    ["order_financials", "additional_costs_cents", "integer not null default 0"],
+    ["orders", "delivery_forecast_date", "text"],
+    ["orders", "delivered_date", "text"],
+    ["transactions", "source_id", "text"],
+    ["transactions", "source_type", "text"],
+    ["transactions", "account", "text"],
+    ["transactions", "external_tx_number", "text"],
+  ];
+  for (const [table, column, def] of migrations) {
+    addColumnIfMissing(table, column, def);
   }
-
-  addColumnIfMissing("transactions", "source_id", "text");
-  addColumnIfMissing("transactions", "source_type", "text");
-  addColumnIfMissing("transactions", "account", "text");
-  addColumnIfMissing("transactions", "external_tx_number", "text");
   const custCols = database.prepare("pragma table_info(customers)").all() as { name: string }[];
   if (custCols.find((c) => c.name === "source_channel")) {
     database.exec("alter table customers drop column source_channel");

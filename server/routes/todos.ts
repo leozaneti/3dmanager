@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../db.js";
-import { all, get } from "./helpers.js";
 
 export default function registerTodoRoutes(app: FastifyInstance) {
   const todoColumnSchema = z.object({
@@ -28,17 +27,17 @@ export default function registerTodoRoutes(app: FastifyInstance) {
     const query = request.query as Record<string, unknown>;
     const showDone = query.showDone !== "0";
 
-    const columns = all<{ id: number; name: string; position: number; is_done_column: number }>(
+    const columns = db.prepare(
       "select id, name, position, is_done_column from todo_columns where active = 1 order by position, id"
-    );
+    ).all() as { id: number; name: string; position: number; is_done_column: number }[];
 
-    const allTodos = all<{
-      id: number; column_id: number; title: string; notes: string;
-      position: number; priority: number; due_date: string; done_at: string;
-    }>(
+    const allTodos = db.prepare(
       `select id, column_id, title, notes, position, priority, due_date, done_at
        from todos order by position`
-    );
+    ).all() as {
+      id: number; column_id: number; title: string; notes: string;
+      position: number; priority: number; due_date: string; done_at: string;
+    }[];
 
     const board = columns.map((col) => {
       const isDone = col.is_done_column === 1;
@@ -67,7 +66,7 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.post("/api/todo-columns", async (request, reply) => {
     const data = todoColumnSchema.parse(request.body);
-    const maxPos = (get("select coalesce(max(position), -1) as m from todo_columns") as any)?.m ?? -1;
+    const maxPos = (db.prepare("select coalesce(max(position), -1) as m from todo_columns").get() as any)?.m ?? -1;
     const position = maxPos + 1;
     const result = db.prepare(
       "insert into todo_columns (name, position, is_done_column) values (?, ?, ?)"
@@ -79,7 +78,7 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.put("/api/todo-columns/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existing = get("select id from todo_columns where id = ?", [id]);
+    const existing = db.prepare("select id from todo_columns where id = ?").get(id);
     if (!existing) { reply.code(404); return { error: "Coluna nao encontrada" }; }
     const data = todoColumnSchema.partial().parse(request.body);
     db.prepare(
@@ -91,12 +90,12 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.delete("/api/todo-columns/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const cardCount = (get("select count(*) as c from todos where column_id = ?", [id]) as any)?.c ?? 0;
+    const cardCount = (db.prepare("select count(*) as c from todos where column_id = ?").get(id) as any)?.c ?? 0;
     if (cardCount > 0) {
       reply.code(409);
       return { error: "Nao e possivel excluir coluna com cards existentes." };
     }
-    const col = get("select name from todo_columns where id = ?", [id]) as any;
+    const col = db.prepare("select name from todo_columns where id = ?").get(id) as any;
     db.prepare("delete from todo_columns where id = ?").run(id);
     db.log("delete", "todo_column", id, `Coluna "${col?.name ?? "#" + id}" excluida`);
     return { ok: true };
@@ -104,7 +103,7 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.post("/api/todos", async (request, reply) => {
     const data = todoSchema.parse(request.body);
-    const maxPos = (get("select coalesce(max(position), -1) as m from todos where column_id = ?", [data.columnId]) as any)?.m ?? -1;
+    const maxPos = (db.prepare("select coalesce(max(position), -1) as m from todos where column_id = ?").get(data.columnId) as any)?.m ?? -1;
     const position = maxPos + 1;
     const result = db.prepare(
       "insert into todos (column_id, title, notes, position, priority, due_date) values (?, ?, ?, ?, ?, ?)"
@@ -116,7 +115,7 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.put("/api/todos/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existing = get("select id from todos where id = ?", [id]);
+    const existing = db.prepare("select id from todos where id = ?").get(id);
     if (!existing) { reply.code(404); return { error: "Card nao encontrado" }; }
     const data = todoSchema.partial().parse(request.body);
     db.prepare(
@@ -140,10 +139,10 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.put("/api/todos/:id/move", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existing = get("select id from todos where id = ?", [id]);
+    const existing = db.prepare("select id from todos where id = ?").get(id);
     if (!existing) { reply.code(404); return { error: "Card nao encontrado" }; }
     const data = todoMoveSchema.parse(request.body);
-    const column = get("select is_done_column from todo_columns where id = ?", [data.columnId]) as any;
+    const column = db.prepare("select is_done_column from todo_columns where id = ?").get(data.columnId) as any;
     const isDone = column?.is_done_column === 1;
     db.prepare(
       "update todos set column_id = ?, position = ?, done_at = ?, updated_at = current_timestamp where id = ?"
@@ -154,7 +153,7 @@ export default function registerTodoRoutes(app: FastifyInstance) {
 
   app.delete("/api/todos/:id", async (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const card = get("select title from todos where id = ?", [id]) as any;
+    const card = db.prepare("select title from todos where id = ?").get(id) as any;
     db.prepare("delete from todos where id = ?").run(id);
     db.log("delete", "todo", id, `Card "${card?.title ?? "#" + id}" excluido`);
     return { ok: true };

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { db } from "../db.js";
 import { calculateOrderTotals } from "../calculations.js";
 import { getStatusId } from "../statusConfig.js";
-import { all } from "./helpers.js";
 
 function getDefaultGroupBy(startDate: string, endDate: string): "day" | "week" | "month" {
   const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24));
@@ -13,7 +13,7 @@ function getDefaultGroupBy(startDate: string, endDate: string): "day" | "week" |
 function dashboardTotals(conditions: string[], params: unknown[]) {
   const filters = [`o.status_id != ${getStatusId("devolvido")}`, ...conditions];
   const where = filters.length ? "where " + filters.join(" and ") : "";
-  const rows = all(
+  const rows = db.prepare(
     `select
       o.id, o.sale_date as saleDate, o.store_id as storeId, s.name as storeName, sc.name as channelName,
       of.products_amount_cents as productsAmountCents,
@@ -33,9 +33,8 @@ function dashboardTotals(conditions: string[], params: unknown[]) {
     join order_financials of on of.order_id = o.id
     left join order_items oi on oi.order_id = o.id
     ${where}
-    group by o.id`,
-    params
-  ) as any[];
+    group by o.id`
+  ).all(...params) as any[];
   const totals = rows.reduce(
     (acc, row) => {
       const calc = calculateOrderTotals(row);
@@ -113,7 +112,7 @@ export default function registerDashboardRoutes(app: FastifyInstance) {
       }
     }
 
-    const productRows = all(
+    const productRows = db.prepare(
       `select
         coalesce(p.name, oi.listing_title, oi.sku, 'Sem produto') as name,
         sum(oi.quantity) as quantity,
@@ -125,9 +124,8 @@ export default function registerDashboardRoutes(app: FastifyInstance) {
       ${whereClause}
       group by name
       order by quantity desc
-      limit 8`,
-      params
-    );
+      limit 8`
+    ).all(...params);
 
     const channelRows = orderRows.reduce<Record<string, any>>((acc, row) => {
       const calc = calculateOrderTotals(row);

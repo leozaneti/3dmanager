@@ -4,16 +4,15 @@ import { db, moneyFields } from "../db.js";
 import { calculateOrderTotals } from "../calculations.js";
 import { STATUS_TRANSITIONS, getStatusId, isDevolvido, isValidStatusId, resolveTransitions, getStatusName } from "../statusConfig.js";
 import { zeroFinancialsSetClause } from "../financials.js";
-import { all, get, cents, optionalId } from "./helpers.js";
 
 export default function registerOrderRoutes(app: FastifyInstance) {
   const orderItemSchema = z.object({
-    productId: optionalId,
+    productId: z.coerce.number().int().positive().nullable().optional(),
     sku: z.string().optional().default(""),
     listingTitle: z.string().optional().default(""),
     quantity: z.coerce.number().int().positive(),
-    saleUnitPriceCents: cents,
-    costUnitCents: cents
+    saleUnitPriceCents: z.coerce.number().int().default(0),
+    costUnitCents: z.coerce.number().int().default(0)
   });
 
   const orderSchema = z.object({
@@ -26,20 +25,20 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     ),
     statusDescription: z.string().optional().default(""),
     salesChannelId: z.coerce.number().int().positive(),
-    customerId: optionalId,
+    customerId: z.coerce.number().int().positive().nullable().optional(),
     notes: z.string().optional().default(""),
     deliveryForecastDate: z.string().optional().default(""),
     deliveredDate: z.string().optional().default(""),
     financials: z.object({
-      productsAmountCents: cents,
-      shippingTotalCents: cents,
-      shippingCustomerCents: cents,
-      platformFeeCents: cents,
-      discountCents: cents,
-      otherCostsCents: cents,
-      amountReceivedCents: cents.optional().default(0),
-      packagingCents: cents,
-      additionalCostsCents: cents
+      productsAmountCents: z.coerce.number().int().default(0),
+      shippingTotalCents: z.coerce.number().int().default(0),
+      shippingCustomerCents: z.coerce.number().int().default(0),
+      platformFeeCents: z.coerce.number().int().default(0),
+      discountCents: z.coerce.number().int().default(0),
+      otherCostsCents: z.coerce.number().int().default(0),
+      amountReceivedCents: z.coerce.number().int().default(0).optional().default(0),
+      packagingCents: z.coerce.number().int().default(0),
+      additionalCostsCents: z.coerce.number().int().default(0)
     }),
     items: z.array(orderItemSchema)
   });
@@ -92,27 +91,25 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     const { where, params } = orderListWhere(query);
     const limit = query.limit ? Number(query.limit) : 0;
     const offset = query.offset ? Number(query.offset) : 0;
-    const total = (get(
+    const total = (db.prepare(
       `select count(*) as c from (select o.id from orders o
         join stores s on s.id = o.store_id
         join order_statuses os on os.id = o.status_id
         join sales_channels sc on sc.id = o.sales_channel_id
         left join customers c on c.id = o.customer_id
         ${where}
-        group by o.id)`,
-      params
-    ) as any)?.c ?? 0;
-    const activeTotal = (get(
+        group by o.id)`
+    ).get(...params) as any)?.c ?? 0;
+    const activeTotal = (db.prepare(
       `select count(*) as c from (select o.id from orders o
         join stores s on s.id = o.store_id
         join order_statuses os on os.id = o.status_id
         join sales_channels sc on sc.id = o.sales_channel_id
         left join customers c on c.id = o.customer_id
         ${where}${where ? " and" : "where"} o.status_id != ${getStatusId("devolvido")}
-        group by o.id)`,
-      params
-    ) as any)?.c ?? 0;
-    const data = all(
+        group by o.id)`
+    ).get(...params) as any)?.c ?? 0;
+    const data = db.prepare(
           `select
         o.id, o.status_id as statusId, o.external_order_id as externalOrderId, o.sale_date as saleDate,
         o.delivery_forecast_date as deliveryForecastDate, o.delivered_date as deliveredDate,
@@ -139,11 +136,10 @@ export default function registerOrderRoutes(app: FastifyInstance) {
       ${where}
       group by o.id
       order by o.sale_date desc, o.id desc
-      ${limit ? `limit ${limit} offset ${offset}` : ""}`,
-      params
-    ).map((row: any) => ({ ...row, totals: calculateOrderTotals(row) }));
+      ${limit ? `limit ${limit} offset ${offset}` : ""}`
+    ).all(...params).map((row: any) => ({ ...row, totals: calculateOrderTotals(row) }));
 
-    const filterTotals = (get(
+    const filterTotals = (db.prepare(
       `select
         count(*) as orderCount,
         coalesce(sum(of.products_amount_cents), 0) as productsAmountCents,
@@ -163,22 +159,20 @@ export default function registerOrderRoutes(app: FastifyInstance) {
       left join customers c on c.id = o.customer_id
       join order_financials of on of.order_id = o.id
       left join (select order_id, sum(quantity * cost_unit_cents) as item_cost from order_items group by order_id) oi_sum on oi_sum.order_id = o.id
-      ${where}`,
-      params
-    ) as any) ?? {};
+      ${where}`
+    ).get(...params) as any) ?? {};
 
-    const activeOrderCount = (get(
+    const activeOrderCount = (db.prepare(
       `select count(*) as c from (select o.id from orders o
         join stores s on s.id = o.store_id
         join order_statuses os on os.id = o.status_id
         join sales_channels sc on sc.id = o.sales_channel_id
         left join customers c on c.id = o.customer_id
         ${where}${where ? " and" : "where"} o.status_id != ${getStatusId("devolvido")}
-        group by o.id)`,
-      params
-    ) as any)?.c ?? 0;
+        group by o.id)`
+    ).get(...params) as any)?.c ?? 0;
 
-    const statusCounts = all(
+    const statusCounts = db.prepare(
       `select os.id, os.name, count(*) as count
        from orders o
        join stores s on s.id = o.store_id
@@ -187,9 +181,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
        left join customers c on c.id = o.customer_id
        ${where}
        group by o.status_id
-       order by os.id`,
-      params
-    ) as { id: number; name: string; count: number }[];
+       order by os.id`
+    ).all(...params) as { id: number; name: string; count: number }[];
 
     return { data, total, activeTotal, filterTotals, activeOrderCount, statusCounts };
   });
@@ -197,7 +190,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
   /** GET /api/orders/:id — pedido + itens + valores calculados. */
   app.get("/api/orders/:id", (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const order = get(
+    const order = db.prepare(
       `
         select
           o.id, o.store_id as storeId, o.external_order_id as externalOrderId, o.sale_date as saleDate,
@@ -214,21 +207,19 @@ export default function registerOrderRoutes(app: FastifyInstance) {
         left join customers c on c.id = o.customer_id
         join order_financials of on of.order_id = o.id
         where o.id = ?
-      `,
-      [id]
-    );
+      `
+    ).get(id);
     if (!order) {
       reply.code(404);
       return { error: "Pedido não encontrado" };
     }
-    const items = all(
+    const items = db.prepare(
       `
         select id, product_id as productId, sku, listing_title as listingTitle, quantity,
           sale_unit_price_cents as saleUnitPriceCents, cost_unit_cents as costUnitCents
         from order_items where order_id = ? order by id
-      `,
-      [id]
-    );
+      `
+    ).all(id);
     return { ...(order as object), items };
   });
 
@@ -292,13 +283,13 @@ export default function registerOrderRoutes(app: FastifyInstance) {
   app.put("/api/orders/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     const data = orderSchema.parse(request.body);
-    const existing = get("select id from orders where id = ?", [id]);
+    const existing = db.prepare("select id from orders where id = ?").get(id);
     if (!existing) {
       reply.code(404);
       return { error: "Pedido não encontrado" };
     }
     if (data.externalOrderId) {
-      const dup = get("select id from orders where store_id = ? and sales_channel_id = ? and external_order_id = ? and id != ?", [data.storeId, data.salesChannelId, data.externalOrderId, id]);
+      const dup = db.prepare("select id from orders where store_id = ? and sales_channel_id = ? and external_order_id = ? and id != ?").get(data.storeId, data.salesChannelId, data.externalOrderId, id);
       if (dup) {
         reply.code(409);
         return { error: "externalOrderId já usado por outro pedido" };
@@ -373,7 +364,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
   app.put("/api/orders/:id/status", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
     const { statusId } = z.object({ statusId: z.coerce.number().int().positive() }).parse(request.body);
-    const order = get("select status_id, sales_channel_id from orders where id = ?", [id]);
+    const order = db.prepare("select status_id, sales_channel_id from orders where id = ?").get(id);
     if (!order) {
       reply.code(404);
       return { error: "Pedido não encontrado" };
@@ -384,11 +375,11 @@ export default function registerOrderRoutes(app: FastifyInstance) {
       reply.code(400);
       return { error: "Transição de status inválida" };
     }
-    const newStatus = get("select name from order_statuses where id = ?", [statusId]) as any;
+    const newStatus = db.prepare("select name from order_statuses where id = ?").get(statusId) as any;
     db.prepare("update orders set status_id = ?, updated_at = current_timestamp where id = ?").run(statusId, id);
 
     if (isDevolvido(statusId)) {
-      const channel = get("select name from sales_channels where id = ?", [(order as any).sales_channel_id]) as any;
+      const channel = db.prepare("select name from sales_channels where id = ?").get((order as any).sales_channel_id) as any;
       if (channel?.name === "Mercado Livre") {
         db.prepare(`update order_financials set ${zeroFinancialsSetClause()} where order_id = ?`).run(id);
         db.prepare("update order_items set cost_unit_cents = 0 where order_id = ?").run(id);
@@ -429,15 +420,14 @@ export default function registerOrderRoutes(app: FastifyInstance) {
     const ids = String(query.ids ?? "").split(",").map(Number).filter((n) => n > 0);
     if (!ids.length) return { amountReceivedCents: 0, grossRevenueCents: 0, orderCount: 0 };
     const placeholders = ids.map(() => "?").join(",");
-    const row = get(
+    const row = db.prepare(
       `select
          coalesce(sum(of.amount_received_cents), 0) as amountReceivedCents,
          coalesce(sum(of.products_amount_cents + of.shipping_customer_cents), 0) as grossRevenueCents,
          count(*) as orderCount
        from order_financials of
-       where of.order_id in (${placeholders})`,
-      ids
-    ) as any;
+       where of.order_id in (${placeholders})`
+    ).get(...ids) as any;
     return row ?? { amountReceivedCents: 0, grossRevenueCents: 0, orderCount: 0 };
   });
 }

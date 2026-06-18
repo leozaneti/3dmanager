@@ -1,16 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db, moneyFields } from "../db.js";
-import { all, get, boolRow, cents } from "./helpers.js";
 
 export default function registerProductRoutes(app: FastifyInstance) {
   const productSchema = z.object({
     name: z.string().min(1),
     sku: z.string().min(1),
-    currentCostCents: cents,
+    currentCostCents: z.coerce.number().int().default(0),
     weightGrams: z.coerce.number().int().default(0),
     printTimeMinutes: z.coerce.number().int().default(0),
-    additionalCostCents: cents,
+    additionalCostCents: z.coerce.number().int().default(0),
     active: z.coerce.boolean().default(true)
   });
 
@@ -31,8 +30,8 @@ export default function registerProductRoutes(app: FastifyInstance) {
       params.push(`%${search}%`, `%${search}%`);
     }
     const where = conditions.length ? "where " + conditions.join(" and ") : "";
-    const total = (get(`select count(*) as c from products p ${where}`, params) as any)?.c ?? 0;
-    const data = all(
+    const total = (db.prepare(`select count(*) as c from products p ${where}`).get(...params) as any)?.c ?? 0;
+    const data = db.prepare(
       `select ${moneyFields.product},
         min(psp.sale_price_cents) as minSalePriceCents,
         max(psp.sale_price_cents) as maxSalePriceCents,
@@ -42,9 +41,8 @@ export default function registerProductRoutes(app: FastifyInstance) {
       ${where}
       group by p.id
       order by p.active desc, p.name
-      ${limit ? `limit ${limit} offset ${offset}` : ""}`,
-      params
-    ).map(boolRow);
+      ${limit ? `limit ${limit} offset ${offset}` : ""}`
+    ).all(...params).map(row => ({ ...row, active: Boolean(row.active) }));
     return { data, total };
   });
 
@@ -93,7 +91,7 @@ export default function registerProductRoutes(app: FastifyInstance) {
 
   app.delete("/api/products/:id", async (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const prod = get("select name from products where id = ?", [id]) as any;
+    const prod = db.prepare("select name from products where id = ?").get(id) as any;
     db.prepare("update order_items set product_id = null where product_id = ?").run(id);
     db.prepare("delete from products where id = ?").run(id);
     db.log("delete", "product", id, `Produto "${prod?.name ?? '#' + id}" excluído`);
@@ -104,7 +102,7 @@ export default function registerProductRoutes(app: FastifyInstance) {
     const { ids } = z.object({ ids: z.array(z.number().int().positive()).nonempty() }).parse(request.body);
     for (const id of ids) {
       db.prepare("update order_items set product_id = null where product_id = ?").run(id);
-      const prod = get("select name from products where id = ?", [id]) as any;
+      const prod = db.prepare("select name from products where id = ?").get(id) as any;
       db.prepare("delete from products where id = ?").run(id);
       db.log("delete", "product", id, `Produto "${prod?.name ?? '#' + id}" excluído (em lote)`);
     }
@@ -113,22 +111,21 @@ export default function registerProductRoutes(app: FastifyInstance) {
 
   app.get("/api/products/:id/dependencies", (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const product = get("select id, name from products where id = ?", [id]);
+    const product = db.prepare("select id, name from products where id = ?").get(id);
     if (!product) return { error: "Produto não encontrado" };
-    const orderItemsCount = (get("select count(*) as c from order_items where product_id = ?", [id]) as any)?.c ?? 0;
+    const orderItemsCount = (db.prepare("select count(*) as c from order_items where product_id = ?").get(id) as any)?.c ?? 0;
     return { orderItemsCount };
   });
 
   app.get("/api/products/:id/prices", (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    return all(
+    return db.prepare(
       `select psp.sales_channel_id as salesChannelId, sc.name as salesChannelName,
          psp.sale_price_cents as salePriceCents, psp.net_received_cents as netReceivedCents
        from product_sale_prices psp
        join sales_channels sc on sc.id = psp.sales_channel_id
-       where psp.product_id = ?`,
-      [id]
-    );
+       where psp.product_id = ?`
+    ).all(id);
   });
 
   app.put("/api/products/:id/prices", async (request) => {
@@ -136,8 +133,8 @@ export default function registerProductRoutes(app: FastifyInstance) {
     const data = z.object({
       prices: z.array(z.object({
         salesChannelId: z.number().int().positive(),
-        salePriceCents: cents,
-        netReceivedCents: cents,
+        salePriceCents: z.coerce.number().int().default(0),
+        netReceivedCents: z.coerce.number().int().default(0),
       }))
     }).parse(request.body);
     const stmt = db.prepare(

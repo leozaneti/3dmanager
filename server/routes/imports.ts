@@ -7,7 +7,6 @@ import type { ParsedOrder } from "../xlsxParser.js";
 import { previewMpCsv, confirmMpImport } from "../importerMp.js";
 import { mapStatus } from "../importShared.js";
 import { computeCupomCents, matchProductByTitle } from "../financials.js";
-import { all, get } from "./helpers.js";
 
 const importCache = new Map<string, { orders: ParsedOrder[]; timestamp: number; fileName: string }>();
 
@@ -47,7 +46,7 @@ export default function registerImportRoutes(app: FastifyInstance) {
       const parseResult = parseMercadoLivreXlsx(fileBuffer);
       const orders = parseResult.orders;
 
-      const salesChannelId = (get("select id from sales_channels where name = 'Mercado Livre'") as any)?.id ?? 1;
+      const salesChannelId = (db.prepare("select id from sales_channels where name = 'Mercado Livre'").get() as any)?.id ?? 1;
       const allStatuses = (db.prepare("select id, name from order_statuses").all() as { id: number; name: string }[]);
       const statusMap = new Map(allStatuses.map(s => [s.name.toLowerCase(), s.id]));
 
@@ -66,12 +65,12 @@ export default function registerImportRoutes(app: FastifyInstance) {
         }
       }
       for (const sku of allSkus) {
-        const exists = get("select id from products where sku = ?", [sku]);
+        const exists = db.prepare("select id from products where sku = ?").get(sku);
         if (!exists) missingSkuSet.add(sku);
       }
 
       const unmatchedTitlesSet = new Set<string>();
-      const productList = (all("select id, name, sku, current_cost_cents from products") as { id: number; name: string; sku: string; current_cost_cents: number }[]).map((p) => ({
+      const productList = (db.prepare("select id, name, sku, current_cost_cents from products").all() as { id: number; name: string; sku: string; current_cost_cents: number }[]).map((p) => ({
         id: p.id,
         name: p.name,
         sku: p.sku,
@@ -87,20 +86,20 @@ export default function registerImportRoutes(app: FastifyInstance) {
 
       const sales = orders.map((o) => {
         const key = o.saleNumber || o.orderNumber;
-        const existing = get(`select o.id, o.status_id, o.status_description,
+        const existing = db.prepare(`select o.id, o.status_id, o.status_description,
           of.products_amount_cents, of.shipping_total_cents, of.shipping_customer_cents,
           of.platform_fee_cents, of.discount_cents, of.other_costs_cents, of.amount_received_cents,
           of.packaging_cents,
           o.delivery_forecast_date, o.delivered_date,
           (select count(*) from order_items where order_id = o.id) as item_count
           from orders o join order_financials of on of.order_id = o.id
-          where o.external_order_id = ? and o.sales_channel_id = ?`, [key, salesChannelId]) as any;
+          where o.external_order_id = ? and o.sales_channel_id = ?`).get(key, salesChannelId) as any;
         const changes: { field: string; from: string; to: string }[] = [];
         let isDuplicate = false;
         if (existing) {
           const orderStatusId = mapStatus(o.status, o.statusDescription, statusMap, 1);
-          const oldStatusName = (get("select name from order_statuses where id = ?", [existing.status_id]) as any)?.name ?? String(existing.status_id);
-          const newStatusName = (get("select name from order_statuses where id = ?", [orderStatusId]) as any)?.name ?? String(orderStatusId);
+          const oldStatusName = (db.prepare("select name from order_statuses where id = ?").get(existing.status_id) as any)?.name ?? String(existing.status_id);
+          const newStatusName = (db.prepare("select name from order_statuses where id = ?").get(orderStatusId) as any)?.name ?? String(orderStatusId);
 
           if (existing.status_id !== orderStatusId) {
             changes.push({ field: "Status", from: oldStatusName, to: newStatusName });
@@ -127,7 +126,7 @@ export default function registerImportRoutes(app: FastifyInstance) {
           if (existing.other_costs_cents !== newCupomCents) {
             changes.push({ field: "Cupom", from: String(existing.other_costs_cents / 100), to: String(newCupomCents / 100) });
           }
-          const existingItemCount = (get("select count(*) as c from order_items where order_id = ?", [existing.id]) as any)?.c ?? 0;
+          const existingItemCount = (db.prepare("select count(*) as c from order_items where order_id = ?").get(existing.id) as any)?.c ?? 0;
           if (existingItemCount !== o.items.length) {
             changes.push({ field: "Itens", from: String(existingItemCount), to: String(o.items.length) });
           }

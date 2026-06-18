@@ -2,12 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../db.js";
 import { hashPassword, verifyPassword, createSession, deleteSession, validateSession } from "../auth.js";
-import { get } from "./helpers.js";
 
 export default function registerAuthRoutes(app: FastifyInstance, AUTH_ENABLED: boolean) {
   app.post("/api/auth/setup", async (request, reply) => {
     if (!AUTH_ENABLED) { reply.code(404).send({ error: "Auth desabilitada" }); return; }
-    const existing = get<{ value: string }>("select value from settings where key = 'admin_password_hash'");
+    const existing = db.prepare("select value from settings where key = 'admin_password_hash'").get() as { value: string } | undefined;
     if (existing?.value) {
       reply.code(409);
       return { error: "Senha já configurada" };
@@ -23,7 +22,7 @@ export default function registerAuthRoutes(app: FastifyInstance, AUTH_ENABLED: b
 
   app.get("/api/auth/status", async (request, reply) => {
     if (!AUTH_ENABLED) return { enabled: false, configured: false, authenticated: true };
-    const existing = get<{ value: string }>("select value from settings where key = 'admin_password_hash'");
+    const existing = db.prepare("select value from settings where key = 'admin_password_hash'").get() as { value: string } | undefined;
     const configured = !!existing?.value;
     if (!configured) return { enabled: true, configured: false, authenticated: false };
     const cookie = request.headers.cookie ?? "";
@@ -37,7 +36,7 @@ export default function registerAuthRoutes(app: FastifyInstance, AUTH_ENABLED: b
   }, async (request, reply) => {
     if (!AUTH_ENABLED) { reply.code(404).send({ error: "Auth desabilitada" }); return; }
     const { password } = z.object({ password: z.string().min(1) }).parse(request.body);
-    const stored = get<{ value: string }>("select value from settings where key = 'admin_password_hash'");
+    const stored = db.prepare("select value from settings where key = 'admin_password_hash'").get() as { value: string } | undefined;
     if (!stored?.value) {
       reply.code(400);
       return { error: "Nenhuma senha configurada. Acesse /setup primeiro." };

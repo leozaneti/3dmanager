@@ -3,7 +3,6 @@ import { z } from "zod";
 import { db } from "../db.js";
 import { getStateName } from "../brazilianStates.js";
 import { getStatusId } from "../statusConfig.js";
-import { all, get } from "./helpers.js";
 
 export default function registerCustomerRoutes(app: FastifyInstance) {
   const customerSchema = z.object({
@@ -124,11 +123,10 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
       coalesce(s.totalItemsCostCents, 0) as totalItemsCostCents
     `;
     const queryParams = [...statsParams, ...params];
-    const total = (get(`select count(*) as c ${fromClause}`, queryParams) as any)?.c ?? 0;
-    const data = all(
-      `select ${selectClause} ${fromClause} order by c.name ${limit ? `limit ${limit} offset ${offset}` : ""}`,
-      queryParams
-    );
+    const total = (db.prepare(`select count(*) as c ${fromClause}`).get(...queryParams) as any)?.c ?? 0;
+    const data = db.prepare(
+      `select ${selectClause} ${fromClause} order by c.name ${limit ? `limit ${limit} offset ${offset}` : ""}`
+    ).all(...queryParams);
     return { data, total };
   });
 
@@ -150,7 +148,7 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
 
   app.put("/api/customers/:id", async (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const existing = get("select id from customers where id = ?", [id]);
+    const existing = db.prepare("select id from customers where id = ?").get(id);
     if (!existing) {
       reply.code(404);
       return { error: "Cliente não encontrado" };
@@ -169,7 +167,7 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
 
   app.delete("/api/customers/:id", async (request) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const cust = get("select name from customers where id = ?", [id]) as any;
+    const cust = db.prepare("select name from customers where id = ?").get(id) as any;
     db.prepare("update orders set customer_id = null where customer_id = ?").run(id);
     db.prepare("delete from customers where id = ?").run(id);
     db.log("delete", "customer", id, `Cliente "${cust?.name ?? '#' + id}" excluído`);
@@ -179,7 +177,7 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
   app.post("/api/customers/bulk-delete", async (request, reply) => {
     const { ids } = z.object({ ids: z.array(z.number().int().positive()).nonempty() }).parse(request.body);
     for (const id of ids) {
-      const cust = get("select name from customers where id = ?", [id]) as any;
+      const cust = db.prepare("select name from customers where id = ?").get(id) as any;
       db.prepare("update orders set customer_id = null where customer_id = ?").run(id);
       db.prepare("delete from customers where id = ?").run(id);
       db.log("delete", "customer", id, `Cliente "${cust?.name ?? '#' + id}" excluído (em lote)`);
@@ -189,19 +187,13 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
 
   app.get("/api/customers/:id/summary", (request, reply) => {
     const id = z.coerce.number().int().positive().parse((request.params as { id: string }).id);
-    const customer = get<Record<string, unknown>>("select id, name, phone, email, document, cep, logradouro, numero, complemento, bairro, cidade, estado, notes from customers where id = ?", [id]);
+    const customer = db.prepare("select id, name, phone, email, document, cep, logradouro, numero, complemento, bairro, cidade, estado, notes from customers where id = ?").get(id) as Record<string, unknown> | undefined;
     if (!customer) {
       reply.code(404);
       return { error: "Cliente não encontrado" };
     }
 
-    const stats = get<{
-      totalOrders: number;
-      totalRevenueCents: number;
-      totalProfitCents: number;
-      firstPurchase: string | null;
-      lastPurchase: string | null;
-    }>(
+    const stats = db.prepare(
       `
         select
           count(*) as totalOrders,
@@ -212,11 +204,16 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
         from orders o
         join order_financials of on of.order_id = o.id
         where o.customer_id = ?
-      `,
-      [getStatusId("devolvido"), id]
-    ) ?? { totalOrders: 0, totalRevenueCents: 0, totalProfitCents: 0, firstPurchase: null, lastPurchase: null };
+      `
+    ).get(getStatusId("devolvido"), id) as {
+      totalOrders: number;
+      totalRevenueCents: number;
+      totalProfitCents: number;
+      firstPurchase: string | null;
+      lastPurchase: string | null;
+    } | undefined ?? { totalOrders: 0, totalRevenueCents: 0, totalProfitCents: 0, firstPurchase: null, lastPurchase: null };
 
-    const profitRow = get<{ totalProfitCents: number }>(
+    const profitRow = db.prepare(
       `
         select coalesce(sum(
           of.products_amount_cents + of.shipping_customer_cents
@@ -232,9 +229,8 @@ export default function registerCustomerRoutes(app: FastifyInstance) {
           from order_items group by order_id
         ) items on items.order_id = o.id
         where o.customer_id = ? and o.status_id != ?
-      `,
-      [id, getStatusId("devolvido")]
-    );
+      `
+    ).get(id, getStatusId("devolvido")) as { totalProfitCents: number } | undefined;
 
     return {
       customer,
