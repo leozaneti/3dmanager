@@ -244,7 +244,7 @@ O cupom é armazenado em `other_costs_cents`.
 - Despesas subclassificadas em `fixed` (fixas) e `variable` (variáveis)
 - Categorias pré-cadastradas são fixas, mas o usuário pode criar novas.
 
-### RN42 – Pedido Obrigatório em Transação de Venda
+### RN44 – Pedido Obrigatório em Transação de Venda
 - Toda transação do tipo `income` e categoria `Vendas` deve ter ao menos um pedido vinculado.
 - A validação ocorre no backend (POST/PUT `/api/transactions`) e no frontend (impede submit).
 - O MP import não passa pela API, então criações via CSV não são afetadas.
@@ -355,7 +355,7 @@ O cupom é armazenado em `other_costs_cents`.
 | `server/importerMp.ts` | Parsing de CSV do Mercado Pago, preview, confirm, dedup |
 | `server/xlsxParser.ts` | Parsing de XLSX do Mercado Livre, agregação de "Pacote de diversos" |
 | `server/db.ts` | Schema do banco, migração, seed, backup automático |
-| `server/index.ts` | Rotas da API, validações (zod) |
+| `server/routes/` | Rotas modulares da API, validações (zod) |
 | `src/ui/ProductModal.tsx` | Calculadora de custo de produção |
 | `src/ui/OrderModal.tsx` | Formulário de pedidos, autocomplete |
 | `src/ui/OrderFinancialSidebar.tsx` | Sidebar com breakdown financeiro em cascata |

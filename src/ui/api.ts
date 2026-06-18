@@ -79,6 +79,11 @@ export type Customer = {
   totalItemsCostCents?: number;
 };
 
+/**
+ * Helper HTTP para chamadas à API do backend.
+ * Adiciona `credentials: "include"` (cookies de sessão) e ajusta
+ * `Content-Type` automaticamente: JSON se o body não for FormData.
+ */
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
   const isFormData = options?.body instanceof FormData;
@@ -99,6 +104,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+/** Formata centavos (INTEGER) para exibição em BRL: 1999 → "R$ 19,99". */
 export function money(cents?: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -106,16 +112,22 @@ export function money(cents?: number) {
   }).format((cents ?? 0) / 100);
 }
 
+/**
+ * Converte string monetária no formato brasileiro para centavos (INTEGER).
+ * "19,99" → 1999. Remove separadores de milhar e trata vírgula como decimal.
+ */
 export function toCents(value: FormDataEntryValue | null) {
   const text = String(value ?? "0").replace(/\./g, "").replace(",", ".");
   const n = Number(text || 0);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+/** Converte centavos para string decimal brasileira: 1999 → "19,99". */
 export function fromCents(cents?: number) {
   return ((cents ?? 0) / 100).toFixed(2).replace(".", ",");
 }
 
+/** Converte data ISO (YYYY-MM-DD) para exibição no formato brasileiro (dd/mm/aaaa). */
 export function fmtDate(iso: string) {
   if (!iso) return "-";
   const parts = iso.split("T")[0].split("-");

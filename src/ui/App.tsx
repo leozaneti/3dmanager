@@ -24,6 +24,17 @@ import { CustomersView } from "./views/CustomersView";
 import { OrdersView } from "./views/OrdersView";
 import { SettingsView } from "./views/SettingsView";
 
+/**
+ * Máquina de estados da autenticação:
+ *   loading       → consulta /api/auth/status
+ *   disabled      → AUTH_ENABLED=false, renderiza o app direto
+ *   setup         → AUTH_ENABLED=true mas senha não configurada → <Setup />
+ *   login         → AUTH_ENABLED=true, senha existe, não autenticado → <Login />
+ *   authenticated → sessão válida → renderiza sidebar + views
+ *
+ * Views são roteadas via state local `view`, sem router — trocar de view
+ * é apenas `setView("orders")`.
+ */
 type View = "dashboard" | "orders" | "products" | "customers" | "finance" | "settings" | "import" | "todos";
 
 const nav: { id: View; label: string; icon: LucideIcon }[] = [

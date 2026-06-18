@@ -51,10 +51,16 @@ function rangeForPreset(preset: DatePreset): DateRange {
   }
 }
 
+/** Hook React que retorna o intervalo de datas correspondente a um preset. */
 export function useDatePreset(preset: DatePreset): DateRange {
   return rangeForPreset(preset);
 }
 
+/**
+ * Retorna o intervalo de datas para um preset sem depender de hooks.
+ * Presets: today, yesterday, 7d, 15d, 30d, month, lastmonth, all.
+ * `all` retorna `allTime: true` com strings vazias (sem filtro).
+ */
 export function dateRangeFor(preset: DatePreset): DateRange {
   return rangeForPreset(preset);
 }

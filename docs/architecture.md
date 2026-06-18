@@ -22,7 +22,7 @@
 ┌──────────────────────────────┴───────────────────────────────────────┐
 │                        Fastify (Node 18+)                              │
 │  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │  Rotas (server/index.ts)                                         │ │
+│  │  Rotas (server/routes/*.ts — orders, products, customers, ...)   │ │
 │  │   - Validação Zod → chama regra de negócio → persiste via db     │ │
 │  │   - Endpoints REST: /orders, /customers, /products, /finance...  │ │
 │  └──────┬─────────────────────────────────────┬─────────────────────┘ │

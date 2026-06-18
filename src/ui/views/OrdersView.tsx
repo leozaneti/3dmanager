@@ -19,10 +19,6 @@ import { useSelection } from "../../hooks/useSelection";
 import { useSort } from "../../hooks/useSort";
 import type { Meta } from "../api";
 
-const STATUS_CLASS: Record<number, string> = {
-  1: "novo", 3: "enviado", 4: "entregue", 5: "cancelado", 6: "devolvido"
-};
-
 type TooltipState = {
   x: number; y: number;
   order?: any;
@@ -373,7 +369,7 @@ export function OrdersView({ meta, pendingOrderId, onConsumePendingOrder }: { me
                   <td>
                     {statusTransitions.data?.[order.statusId]?.length ? (
                       <select
-                        className={`status-badge status-${STATUS_CLASS[order.statusId] ?? ""}`}
+                        className={`status-badge status-${(order.statusName || "").toLowerCase()}`}
                         value={order.statusId}
                         onChange={(e) => statusMutation.mutate({ id: order.id, statusId: Number(e.target.value) })}
                       >
@@ -383,7 +379,7 @@ export function OrdersView({ meta, pendingOrderId, onConsumePendingOrder }: { me
                         ))}
                       </select>
                     ) : (
-                      <span className={`status-badge status-${STATUS_CLASS[order.statusId] ?? ""}`}>{order.statusName}</span>
+                      <span className={`status-badge status-${(order.statusName || "").toLowerCase()}`}>{order.statusName}</span>
                     )}
                   </td>
                   <td style={{ fontSize: 11, whiteSpace: "nowrap", color: "#6b7280" }}>

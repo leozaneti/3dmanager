@@ -2,6 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
+/**
+ * Camada de acesso ao banco SQLite via CLI (`execFileSync("sqlite3", ...)`).
+ *
+ * Por que `execFileSync` em vez de um driver nativo (better-sqlite3)?
+ *   O ambiente de produção usa Node com ABI 109 modificado (Ubuntu noble) que
+ *   impede o build de módulos nativos. Usar o binário `sqlite3` do sistema
+ *   elimina dependências nativas e funciona em qualquer ambiente com SQLite
+ *   instalado. Para queries em lote (import), `beginBatch/commitBatch` faz um
+ *   único fork com todas as statements, mantendo performance aceitável (~2s
+ *   para 500+ pedidos).
+ *
+ * Sentinela TX_ID:
+ *   `db.prepare("insert ...").run(TX_ID, ...)` usa o placeholder especial
+ *   `@@TX_ID` que é substituído pelo `last_insert_rowid()` da transação ativa.
+ *   Só funciona dentro de `db.transaction()`.
+ */
+
 const env = process.env.DB_ENV || "dev";
 const dataDir = path.resolve("data");
 const dbPath = path.join(dataDir, `${env}.sqlite`);

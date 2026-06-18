@@ -3,7 +3,7 @@
 
 metadata:
   sistema: "3D Manager"
-  versao: "0.2.0"
+  versao: "0.4.0"
   descricao: "Sistema de gestão para e-commerce de impressão 3D"
   ultima_atualizacao: "2026-06-14"
 
@@ -62,7 +62,7 @@ regras:
     acoes:
       - "Zerar order_financials (todos os campos)"
       - "Zerar cost_unit_cents em order_items"
-    fonte: "server/index.ts:1171-1188"
+    fonte: "server/routes/orders.ts:375-382"
     import_tambem: true
 
   - id: RN05
@@ -357,6 +357,17 @@ regras:
       - nome: "Outros custos"
         tipo: "expense"
     subclasses_despesa: ["fixed", "variable"]
+
+  - id: RN44
+    dominio: "DRE"
+    titulo: "Pedido Obrigatório em Transação de Venda"
+    descricao: >
+      Toda transação do tipo income e categoria "Vendas" deve ter ao menos um
+      pedido vinculado via transaction_orders. A validação ocorre no backend
+      (POST/PUT /api/transactions) e no frontend (impede submit). O MP import
+      não passa pela API, então criações via CSV não são afetadas.
+    excecao_mp: "CSV de settlement não valida vínculo de pedido"
+    sem_match: "Venda externa sem pedido → entra em otherIncome no DRE"
 
   # ───────────────────────────────────────────────────────
   # 7. DASHBOARD
