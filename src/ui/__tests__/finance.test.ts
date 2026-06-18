@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { calculateKpisFromTotals } from "../finance";
+import { calculateOrderTotals } from "../../../server/calculations";
 
 const BASE = {
   productsAmountCents: 10000,
@@ -14,51 +14,51 @@ const BASE = {
   additionalCostsCents: 0,
 };
 
-describe("calculateKpisFromTotals", () => {
+describe("calculateOrderTotals", () => {
   it("grossRevenueCents = products + shippingCustomer", () => {
-    const r = calculateKpisFromTotals(BASE);
+    const r = calculateOrderTotals(BASE);
     expect(r.grossRevenueCents).toBe(11500);
   });
 
   it("saleResultCents = grossRevenue - shippingTotal - platformFee - otherCosts + discount", () => {
-    const r = calculateKpisFromTotals(BASE);
+    const r = calculateOrderTotals(BASE);
     expect(r.saleResultCents).toBe(9000);
   });
 
   it("profitCents = saleResult - itemsCost - packaging - additionalCosts", () => {
-    const r = calculateKpisFromTotals(BASE);
+    const r = calculateOrderTotals(BASE);
     expect(r.profitCents).toBe(6000);
   });
 
   it("marginPercent = profit / grossRevenue * 100", () => {
-    const r = calculateKpisFromTotals(BASE);
+    const r = calculateOrderTotals(BASE);
     expect(r.marginPercent).toBeCloseTo(52.17, 1);
   });
 
   it("marginPercent = 0 quando grossRevenue = 0", () => {
-    const r = calculateKpisFromTotals({ ...BASE, productsAmountCents: 0, shippingCustomerCents: 0 });
+    const r = calculateOrderTotals({ ...BASE, productsAmountCents: 0, shippingCustomerCents: 0 });
     expect(r.marginPercent).toBe(0);
   });
 
   it("profit negativo quando custos > receita", () => {
-    const r = calculateKpisFromTotals({ ...BASE, itemsCostCents: 50000 });
+    const r = calculateOrderTotals({ ...BASE, itemsCostCents: 50000 });
     expect(r.profitCents).toBeLessThan(0);
     expect(r.marginPercent).toBeLessThan(0);
   });
 
   it("packaging e additionalCosts reduzem o profit", () => {
-    const sem = calculateKpisFromTotals(BASE);
-    const com = calculateKpisFromTotals({ ...BASE, packagingCents: 500, additionalCostsCents: 300 });
+    const sem = calculateOrderTotals(BASE);
+    const com = calculateOrderTotals({ ...BASE, packagingCents: 500, additionalCostsCents: 300 });
     expect(com.profitCents).toBe(sem.profitCents - 800);
   });
 
   it("discountCents aumenta saleResult", () => {
-    const r = calculateKpisFromTotals({ ...BASE, discountCents: 1000 });
+    const r = calculateOrderTotals({ ...BASE, discountCents: 1000 });
     expect(r.saleResultCents).toBe(10000);
   });
 
   it("retorna os campos", () => {
-    const r = calculateKpisFromTotals(BASE);
+    const r = calculateOrderTotals(BASE);
     expect(r.grossRevenueCents).toBeDefined();
     expect(r.saleResultCents).toBeDefined();
     expect(r.profitCents).toBeDefined();

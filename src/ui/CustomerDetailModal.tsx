@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { api, type Customer, money } from "./api";
 import { ModalShell } from "./ModalShell";
 import { Pagination } from "./Pagination";
-import { calculateKpisFromTotals } from "./finance";
 
 const HISTORY_PAGE_SIZE = 50;
 

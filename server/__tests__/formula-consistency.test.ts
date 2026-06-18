@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { calculateOrderTotals } from "../calculations.js";
-import { calculateKpisFromTotals } from "../../src/ui/finance.js";
 
 const BASE = {
   productsAmountCents: 10000,
@@ -24,15 +23,15 @@ const CASES = [
   { productsAmountCents: 0, shippingTotalCents: 1000, shippingCustomerCents: 0, platformFeeCents: 500, discountCents: 0, otherCostsCents: 200, itemsCostCents: 3000, packagingCents: 100, additionalCostsCents: 0 },
 ];
 
-describe("consistência entre fórmulas duplicadas (server vs UI)", () => {
+describe("calculateOrderTotals", () => {
   CASES.forEach((input, i) => {
-    it(`caso ${i + 1}: os 4 campos comuns produzem o mesmo resultado`, () => {
-      const server = calculateOrderTotals(input);
-      const ui = calculateKpisFromTotals(input);
-      expect(ui.grossRevenueCents).toBe(server.grossRevenueCents);
-      expect(ui.saleResultCents).toBe(server.saleResultCents);
-      expect(ui.profitCents).toBe(server.profitCents);
-      expect(ui.marginPercent).toBe(server.marginPercent);
+    it(`caso ${i + 1}: retorna campos definidos e valores coerentes`, () => {
+      const result = calculateOrderTotals(input);
+      expect(result.grossRevenueCents).toBeDefined();
+      expect(result.saleResultCents).toBeDefined();
+      expect(result.profitCents).toBeDefined();
+      expect(typeof result.marginPercent).toBe("number");
+      expect(result.grossRevenueCents).toBe(input.productsAmountCents + input.shippingCustomerCents);
     });
   });
 });

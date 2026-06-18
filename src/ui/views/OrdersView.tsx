@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { api, money, fmtDate, Customer, OrdersResponse, Paginated, Product } from "../api";
-import { calculateKpisFromTotals } from "../finance";
+import { calculateOrderTotals } from "../../../server/calculations";
 import { PageHeader } from "../PageHeader";
 import { Panel } from "../Panel";
 import { Pagination } from "../Pagination";
@@ -170,7 +170,7 @@ export function OrdersView({ meta, pendingOrderId, onConsumePendingOrder }: { me
         sumItemsCost: 0, sumPackaging: 0, sumAdditional: 0, sumSaleResult: 0,
       };
     }
-    const { grossRevenueCents, saleResultCents, profitCents, marginPercent } = calculateKpisFromTotals(ft);
+    const { grossRevenueCents, saleResultCents, profitCents, marginPercent } = calculateOrderTotals(ft);
     return {
       displayed: orderList.length,
       total: orders.data?.total ?? 0,

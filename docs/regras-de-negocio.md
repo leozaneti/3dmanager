@@ -359,5 +359,5 @@ O cupom é armazenado em `other_costs_cents`.
 | `src/ui/ProductModal.tsx` | Calculadora de custo de produção |
 | `src/ui/OrderModal.tsx` | Formulário de pedidos, autocomplete |
 | `src/ui/OrderFinancialSidebar.tsx` | Sidebar com breakdown financeiro em cascata |
-| `src/ui/finance.ts` | Re-export de `calculateOrderTotals` para o frontend |
+| `server/calculations.ts` | Importado diretamente pelo frontend e backend |
 | `src/shared/brazilianStates.ts` | Espelho de `server/brazilianStates.ts` para o frontend |

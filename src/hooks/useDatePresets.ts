@@ -1,5 +1,3 @@
-import { useCallback } from "react";
-
 export type DatePreset = "today" | "yesterday" | "7d" | "15d" | "30d" | "month" | "lastmonth" | "all";
 
 export type DateRange = { startDate: string; endDate: string; allTime: boolean };
@@ -49,11 +47,6 @@ function rangeForPreset(preset: DatePreset): DateRange {
     case "all":
       return { startDate: "", endDate: "", allTime: true };
   }
-}
-
-/** Hook React que retorna o intervalo de datas correspondente a um preset. */
-export function useDatePreset(preset: DatePreset): DateRange {
-  return rangeForPreset(preset);
 }
 
 /**

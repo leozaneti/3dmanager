@@ -27,7 +27,7 @@ export function Dashboard({ meta }: { meta: Meta }) {
   const [channelView, setChannelView] = useState<"revenue" | "orders" | "margin">("revenue");
 
   function setPreset(preset: DatePreset) {
-    const { startDate, endDate, allTime } = { ...dateRangeFor(preset), allTime: preset === "all" };
+    const { startDate, endDate, allTime } = dateRangeFor(preset);
     setStartDate(startDate);
     setEndDate(endDate);
     setAllTime(allTime);

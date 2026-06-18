@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { db, moneyFields, TX_ID } from "../db.js";
+import { db, moneyFields } from "../db.js";
 import { calculateOrderTotals } from "../calculations.js";
 import { STATUS_TRANSITIONS, getStatusId, isDevolvido, isValidStatusId, resolveTransitions, getStatusName } from "../statusConfig.js";
 import { zeroFinancialsSetClause } from "../financials.js";
@@ -236,8 +236,8 @@ export default function registerOrderRoutes(app: FastifyInstance) {
    *  inicial já for Devolvido (caso raro; normalmente entram como "Novo"). */
   app.post("/api/orders", async (request, reply) => {
     const data = orderSchema.parse(request.body);
-    const orderId = db.transaction<number>(() => {
-      db.prepare(
+    const orderId = db.transaction(() => {
+      const result = db.prepare(
         "insert into orders (store_id, external_order_id, sale_date, status_id, status_description, sales_channel_id, customer_id, notes, delivery_forecast_date, delivered_date) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         data.storeId,
@@ -251,10 +251,11 @@ export default function registerOrderRoutes(app: FastifyInstance) {
         data.deliveryForecastDate || null,
         data.deliveredDate || null
       );
+      const newId = Number(result.lastInsertRowid);
       db.prepare(
         "insert into order_financials (order_id, products_amount_cents, shipping_total_cents, shipping_customer_cents, platform_fee_cents, discount_cents, other_costs_cents, amount_received_cents, packaging_cents, additional_costs_cents) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
-        TX_ID,
+        newId,
         data.financials.productsAmountCents,
         data.financials.shippingTotalCents,
         data.financials.shippingCustomerCents,
@@ -270,7 +271,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
       );
       data.items.forEach((item) =>
         itemStmt.run(
-          TX_ID,
+          newId,
           item.productId ?? null,
           item.sku,
           item.listingTitle,
@@ -279,7 +280,7 @@ export default function registerOrderRoutes(app: FastifyInstance) {
           item.costUnitCents
         )
       );
-      return TX_ID as unknown as number;
+      return newId;
     });
     db.log("create", "order", orderId, `Pedido #${orderId} criado`);
     reply.code(201);

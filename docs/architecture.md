@@ -20,7 +20,7 @@
 └──────────────────────────────┬───────────────────────────────────────┘
                                │ HTTP/JSON (fetch /api/*)
 ┌──────────────────────────────┴───────────────────────────────────────┐
-│                        Fastify (Node 18+)                              │
+│                        Fastify (Node 22+)                              │
 │  ┌──────────────────────────────────────────────────────────────────┐ │
 │  │  Rotas (server/routes/*.ts — orders, products, customers, ...)   │ │
 │  │   - Validação Zod → chama regra de negócio → persiste via db     │ │
@@ -33,9 +33,9 @@
 │  │  - calcul.    │                  │   - Migrações,   │            │
 │  │  - financials │                  │   - Seed,        │            │
 │  │  - importer   │                  │   - Backup auto  │            │
-│  │  - importerMp │                  │   - execFileSync │            │
-│  │  - statusConfig                  │     "sqlite3"   │            │
-│  │  - brazilStates                  │     CLI          │            │
+│  │  - importerMp │                  │   - node:sqlite  │            │
+│  │  - statusConfig                  │     (in-process) │            │
+│  │  - brazilStates                  │                  │            │
 │  └──────┬────────┘                  └─────────┬────────┘            │
 │         │                                     │                      │
 └─────────┼─────────────────────────────────────┼──────────────────────┘
@@ -61,7 +61,7 @@ Exemplo: usuário clica em "Salvar" no modal de edição de pedido.
 4. Fastify: authMiddleware valida sessão (se AUTH_ENABLED)
 5. Fastify: zod schema valida payload → entra no handler
 6. Handler chama db.transaction(() => { ... })
-7. db.ts serializa os ? para literais e executa via execFileSync("sqlite3", ...)
+7. db.ts executa queries via `node:sqlite` (DatabaseSync, in-process, zero fork)
 8. SQLite 3 lê/escreve o arquivo data/dev.sqlite (ou prod.sqlite)
 9. Resposta JSON volta pelo mesmo caminho até o React Query
 10. React Query invalida ["orders", "dashboard"] → refetch automático
@@ -177,18 +177,13 @@ Exemplo: usuário clica em "Salvar" no modal de edição de pedido.
 
 ## Decisões de arquitetura
 
-### Por que SQLite via CLI (`execFileSync`) e não via driver?
+### Por que `node:sqlite` (DatabaseSync) e não um driver externo?
 
-O backend usa `execFileSync("sqlite3", ...)` em cada query — cada `db.prepare().get/all/run` faz um `fork() + exec` do binário.
+O backend usa `node:sqlite` (built-in desde Node 22.5) com `DatabaseSync` — acesso síncrono, in-process, zero dependências. APIs `prepare`/`all`/`get`/`run` similares ao `better-sqlite3`.
 
-**Prós:** zero dependência nativa, funciona em qualquer sistema com `sqlite3` instalado, debug trivial (`sqlite3 data/dev.sqlite`).
-**Contras:** latência alta em queries (4+ forks por página de UI), parsing JSON.
+**Prós:** zero dependência nativa, build instantâneo (built-in), queries in-process sem latência de fork, debug trivial (`sqlite3 data/dev.sqlite`). O batch mode (`beginBatch`/`batch`/`commitBatch`) foi mantido para imports em lote, mas executa tudo via `database.exec()` — sem forks.
 
-Foi documentado plano para migrar para `better-sqlite3` (in-process, 10-50x mais rápido), mas o ambiente local tem Node com ABI 109 modificado (Ubuntu noble) que impede o build do módulo. A migração está bloqueada no ambiente; em Docker/Node padrão, o `package.json` aceitará o módulo.
-
-### Por que `execFileSync` mesmo no import (lote grande)?
-
-O import de N pedidos usa `beginBatch/commitBatch` que faz um único `fork()` para todas as statements. Os imports de 500+ pedidos do ML levam ~2s, aceitável para o volume típico.
+Substituiu o antigo `execFileSync("sqlite3", ...)` que fazia um `fork()+exec` por query, o que causava latência alta (4+ forks por página) e parsing JSON manual.
 
 ### Por que centavos em vez de reais (REAL)?
 
@@ -233,7 +228,6 @@ A única "state global" fora do React Query é o **estado de auth** (no `App.tsx
 
 | Quando | Evolução | Esforço |
 |--------|----------|---------|
-| > 5k pedidos/mês | Migrar para `better-sqlite3` (ou PostgreSQL) | 1-2 semanas |
 | Multi-usuário | Adicionar `user_id` em `orders`/`customers` e RBAC | 2-3 semanas |
 | Mobile | PWA + offline-first sync | 3-4 semanas |
 | Multi-loja real (franquia) | Schema multi-tenant com `tenant_id` | 1 mês |

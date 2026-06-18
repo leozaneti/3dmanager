@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { api, money, fmtDate, Customer, Paginated } from "../api";
-import { calculateKpisFromTotals } from "../finance";
+import { calculateOrderTotals } from "../../../server/calculations";
 import { PageHeader } from "../PageHeader";
 import { Panel } from "../Panel";
 import { Pagination } from "../Pagination";
@@ -239,7 +239,7 @@ export function CustomersView({ onEditOrder }: { onEditOrder?: (orderId: number)
   }
 
   function setCustomerDatePreset(preset: DatePreset) {
-    const { startDate, endDate, allTime } = { ...dateRangeFor(preset), allTime: preset === "all" };
+    const { startDate, endDate, allTime } = dateRangeFor(preset);
     setStartDate(startDate);
     setEndDate(endDate);
     setAllTime(allTime);
@@ -257,7 +257,7 @@ export function CustomersView({ onEditOrder }: { onEditOrder?: (orderId: number)
 
   const customerKpis = useMemo(() => {
     return custList.map((c) => {
-      const kpis = (c.orderCount ?? 0) > 0 ? calculateKpisFromTotals({
+      const kpis = (c.orderCount ?? 0) > 0 ? calculateOrderTotals({
         productsAmountCents: c.totalProductsAmountCents ?? 0,
         shippingCustomerCents: c.totalShippingCustomerCents ?? 0,
         shippingTotalCents: c.totalShippingTotalCents ?? 0,
@@ -288,7 +288,7 @@ export function CustomersView({ onEditOrder }: { onEditOrder?: (orderId: number)
       { prod: 0, shipCust: 0, shipTot: 0, shipTot2: 0, fees: 0, disc: 0, other: 0, items: 0, pkg: 0, add: 0 } as Record<string, number>
     );
     return {
-      ...calculateKpisFromTotals({
+      ...calculateOrderTotals({
         productsAmountCents: acc.prod,
         shippingCustomerCents: acc.shipCust,
         shippingTotalCents: acc.shipTot,

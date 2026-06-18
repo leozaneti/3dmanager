@@ -11,6 +11,7 @@ import { PageHeader } from "./PageHeader";
 import { DatePresetBar, type DatePreset } from "./DatePresetBar";
 import { dateRangeFor } from "../hooks/useDatePresets";
 import { useSort } from "../hooks/useSort";
+import { KpiCard } from "./KpiCard";
 
 const ACCOUNT_OPTIONS = [
   "Mercado Pago", "Nubank", "Itaú", "Caixa", "Bradesco",
@@ -18,27 +19,6 @@ const ACCOUNT_OPTIONS = [
 ];
 
 const PAGE_SIZE = 25;
-
-function KpiCard({ label, value, sub, compare, loading }: { label: string; value: string | number; sub?: string; compare?: { current: number; previous: number } | null; loading?: boolean }) {
-  function pctChangeText(cur: number, prev: number) {
-    if (!prev || prev === 0) return null;
-    const diff = ((cur - prev) / prev) * 100;
-    return { text: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%`, dir: diff >= 0 ? "up" : "down" };
-  }
-  const comp = compare && compare.previous ? pctChangeText(compare.current, compare.previous) : null;
-  return (
-    <div className="kpi-card">
-      <span className="kpi-label">{label}</span>
-      <strong className="kpi-value">{loading ? "..." : value}</strong>
-      {sub && <span className="kpi-sub">{sub}</span>}
-      {comp && (
-        <span className={`kpi-compare ${comp.dir}`}>
-          {comp.dir === "up" ? "▲" : "▼"} {comp.text} <span className="sub">vs período anterior</span>
-        </span>
-      )}
-    </div>
-  );
-}
 
 export function FinanceView({ onEditOrder }: { onEditOrder?: (orderId: number) => void }) {
   const queryClient = useQueryClient();

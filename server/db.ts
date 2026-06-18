@@ -1,22 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 /**
- * Camada de acesso ao banco SQLite via CLI (`execFileSync("sqlite3", ...)`).
+ * Camada de acesso ao banco SQLite via `node:sqlite` (DatabaseSync).
  *
- * Por que `execFileSync` em vez de um driver nativo (better-sqlite3)?
- *   O ambiente de produção usa Node com ABI 109 modificado (Ubuntu noble) que
- *   impede o build de módulos nativos. Usar o binário `sqlite3` do sistema
- *   elimina dependências nativas e funciona em qualquer ambiente com SQLite
- *   instalado. Para queries em lote (import), `beginBatch/commitBatch` faz um
- *   único fork com todas as statements, mantendo performance aceitável (~2s
- *   para 500+ pedidos).
- *
- * Sentinela TX_ID:
- *   `db.prepare("insert ...").run(TX_ID, ...)` usa o placeholder especial
- *   `@@TX_ID` que é substituído pelo `last_insert_rowid()` da transação ativa.
- *   Só funciona dentro de `db.transaction()`.
+ * Acesso in-process sem forks — substitui o antigo `execFileSync("sqlite3", ...)`.
+ * `node:sqlite` é built-in desde Node 22.5.
  */
 
 const env = process.env.DB_ENV || "dev";
@@ -27,111 +17,61 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: typeof import("node:sqlite")["DatabaseSync"] };
+const database = new DatabaseSync(dbPath);
+
 export function literal(value: unknown) {
-  if (value === TX_ID) return "@@TX_ID";
   if (value === null || value === undefined) return "null";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "0";
   if (typeof value === "boolean") return value ? "1" : "0";
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function bind(sql: string, params: unknown[]) {
-  let index = 0;
-  return sql.replace(/\?/g, () => literal(params[index++]));
-}
-
-function sqlite(sql: string, json = false) {
-  const args = json ? ["-json", dbPath, sql] : [dbPath, sql];
-  let output = "";
-  try {
-    output = execFileSync("sqlite3", args, { encoding: "utf8" }).trim();
-  } catch (error) {
-    const maybeOutput = (error as { stdout?: string; status?: number }).stdout;
-    if ((error as { status?: number }).status === 0 && maybeOutput !== undefined) {
-      output = maybeOutput.trim();
-    } else {
-      throw error;
-    }
-  }
-  if (!json || output.length === 0) return [];
-  return JSON.parse(output) as Record<string, unknown>[];
-}
-
-/** Sentinel value — use inside `db.transaction()` in place of `last_insert_rowid()` */
-export const TX_ID = Symbol("TX_ID");
-
-let _txCollecting = false;
-let _txStatements: string[] = [];
 let _batching = false;
 let _batchStatements: string[] = [];
 
 export const db = {
   exec(sql: string) {
-    sqlite(sql);
+    database.exec(sql);
   },
   pragma(sql: string) {
-    sqlite(`pragma ${sql};`);
+    database.exec(`pragma ${sql};`);
   },
   prepare(sql: string) {
+    const stmt = database.prepare(sql);
+    const paramCount = (sql.match(/\?/g) || []).length;
     return {
-      all(params: unknown[] = []) {
-        if (_txCollecting) throw Error("all() not supported inside db.transaction()");
-        return sqlite(bind(sql, params), true);
+      all(...params: unknown[]) {
+        const flat = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+        if (paramCount === 0) return stmt.all() as Record<string, unknown>[];
+        return stmt.all(...flat.slice(0, paramCount) as any) as Record<string, unknown>[];
       },
-      get(params: unknown[] = []) {
-        if (_txCollecting) throw Error("get() not supported inside db.transaction()");
-        return sqlite(bind(sql, params), true)[0];
+      get(...params: unknown[]) {
+        const flat = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+        if (paramCount === 0) return stmt.get() as Record<string, unknown> | undefined;
+        return stmt.get(...flat.slice(0, paramCount) as any) as Record<string, unknown> | undefined;
       },
       run(...params: unknown[]) {
-        if (_txCollecting) {
-          _txStatements.push(bind(sql, params));
-          return { lastInsertRowid: 0 };
-        }
-        const rows = sqlite(`${bind(sql, params)}; select last_insert_rowid() as lastInsertRowid;`, true);
-        return { lastInsertRowid: Number(rows[0]?.lastInsertRowid ?? 0) };
+        return stmt.run(...params.slice(0, paramCount) as any);
       }
     };
   },
   transaction<T>(fn: () => T): T {
-    _txCollecting = true;
-    _txStatements = [];
+    database.exec("BEGIN");
     try {
       const result = fn();
-      const sqlParts: string[] = ["BEGIN"];
-      let firstInsert = true;
-      for (let stmt of _txStatements) {
-        stmt = stmt.replace(/@@TX_ID/g, "(SELECT val FROM _tx_id)");
-        sqlParts.push(stmt);
-        if (firstInsert && /^\s*insert\s/i.test(stmt)) {
-          sqlParts.push(
-            "CREATE TEMP TABLE IF NOT EXISTS _tx_id (val integer);" +
-            "DELETE FROM _tx_id;" +
-            "INSERT INTO _tx_id SELECT last_insert_rowid();"
-          );
-          firstInsert = false;
-        }
-      }
-      sqlParts.push("COMMIT");
-      sqlParts.push("SELECT ifnull((SELECT val FROM _tx_id), 0) AS id;");
-      const combined = sqlParts.join(";\n");
-      let rows: Record<string, unknown>[];
-      try {
-        rows = sqlite(combined, true);
-      } catch (e) {
-        console.error("TX ERROR:", (e as Error).message);
-        console.error("TX SQL:", combined);
-        throw e;
-      }
-      const lastId = rows.length > 0 ? Number((rows[0] as any)?.id ?? 0) : 0;
-      if (result === (TX_ID as unknown)) return lastId as unknown as T;
+      database.exec("COMMIT");
       return result;
-    } finally {
-      _txCollecting = false;
-      _txStatements = [];
+    } catch (e) {
+      database.exec("ROLLBACK");
+      throw e;
     }
   },
   log(action: string, entity: string, entityId: number | null, description: string) {
-    db.prepare("insert into audit_log (action, entity, entity_id, description) values (?, ?, ?, ?)").run(action, entity, entityId, description);
+    database.prepare("insert into audit_log (action, entity, entity_id, description) values (?, ?, ?, ?)").run(
+      action, entity, entityId, description
+    );
   },
   beginBatch() {
     _batching = true;
@@ -148,9 +88,9 @@ export const db = {
     const full = ["BEGIN", ..._batchStatements, "COMMIT"].join(";\n");
     _batchStatements = [];
     try {
-      db.exec(full);
+      database.exec(full);
     } catch (e) {
-      try { db.exec("ROLLBACK"); } catch {}
+      try { database.exec("ROLLBACK"); } catch {}
       throw e;
     }
   },
@@ -159,13 +99,13 @@ export const db = {
     _batchStatements = [];
   },
   getImportLog(limit = 20, offset = 0) {
-    return db.prepare("select * from import_log order by created_at desc limit ? offset ?").all([limit, offset]);
+    return database.prepare("select * from import_log order by created_at desc limit ? offset ?").all(limit, offset) as Record<string, unknown>[];
   },
   getAuditLog(limit = 50, offset = 0) {
-    return db.prepare("select * from audit_log order by created_at desc limit ? offset ?").all([limit, offset]);
+    return database.prepare("select * from audit_log order by created_at desc limit ? offset ?").all(limit, offset) as Record<string, unknown>[];
   },
   backup(target: string) {
-    execFileSync("sqlite3", [dbPath, `.backup "${target}"`], { encoding: "utf8" });
+    database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
   }
 };
 
@@ -173,9 +113,9 @@ db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
 function addColumnIfMissing(table: string, column: string, def: string) {
-  const row = sqlite(`pragma table_info(${table});`, true) as { name: string }[];
+  const row = database.prepare(`pragma table_info(${table})`).all() as { name: string }[];
   if (!row.find((r) => r.name === column)) {
-    sqlite(`alter table ${table} add column ${column} ${def};`);
+    database.exec(`alter table ${table} add column ${column} ${def};`);
   }
 }
 
@@ -391,8 +331,7 @@ create table if not exists import_log (
   addColumnIfMissing("orders", "delivery_forecast_date", "text");
   addColumnIfMissing("orders", "delivered_date", "text");
 
-  /* Migração: status "Produção" (id=2) removido → rebaixar para "Novo" (id=1) */
-  const prodStatus = db.prepare("select id from order_statuses where name = 'Produção' or name = 'Producao'").get([]) as any;
+  const prodStatus = db.prepare("select id from order_statuses where name = 'Produção' or name = 'Producao'").get() as any;
   if (prodStatus) {
     const oldId = prodStatus.id;
     db.prepare("update orders set status_id = 1, updated_at = current_timestamp where status_id = ?").run(oldId);
@@ -403,19 +342,19 @@ create table if not exists import_log (
   addColumnIfMissing("transactions", "source_type", "text");
   addColumnIfMissing("transactions", "account", "text");
   addColumnIfMissing("transactions", "external_tx_number", "text");
-    const custCols = sqlite("pragma table_info(customers)", true);
-    if (custCols.find((c) => c.name === "source_channel")) {
-        sqlite("alter table customers drop column source_channel");
-    }
-    if (custCols.find((c) => c.name === "active")) {
-        sqlite("alter table customers drop column active");
-    }
-    seed();
+  const custCols = database.prepare("pragma table_info(customers)").all() as { name: string }[];
+  if (custCols.find((c) => c.name === "source_channel")) {
+    database.exec("alter table customers drop column source_channel");
+  }
+  if (custCols.find((c) => c.name === "active")) {
+    database.exec("alter table customers drop column active");
+  }
+  seed();
   cleanup();
 }
 
 function cleanup() {
-  const alreadyCleaned = db.prepare("select value from settings where key = 'schema_legacy_cleaned'").get([]);
+  const alreadyCleaned = db.prepare("select value from settings where key = 'schema_legacy_cleaned'").get() as any;
   if (alreadyCleaned) return;
 
   db.exec("drop table if exists product_categories");
@@ -423,17 +362,17 @@ function cleanup() {
   db.exec("drop table if exists import_rows");
   db.exec("drop table if exists product_cost_history");
 
-  const productCols = sqlite("pragma table_info(products)", true) as { name: string }[];
+  const productCols = database.prepare("pragma table_info(products)").all() as { name: string }[];
   if (productCols.find((c) => c.name === "suggested_price_cents")) {
-    sqlite("alter table products drop column suggested_price_cents");
+    database.exec("alter table products drop column suggested_price_cents");
   }
 
-  const orderCols = sqlite("pragma table_info(orders)", true) as { name: string }[];
+  const orderCols = database.prepare("pragma table_info(orders)").all() as { name: string }[];
   if (orderCols.find((c) => c.name === "import_batch_id")) {
-    sqlite("alter table orders drop column import_batch_id");
+    database.exec("alter table orders drop column import_batch_id");
   }
 
-  db.prepare("insert or replace into settings (key, value, description) values ('schema_legacy_cleaned', '1', 'Bandeira: tabelas legadas ja removidas')").run([]);
+  db.prepare("insert or replace into settings (key, value, description) values ('schema_legacy_cleaned', '1', 'Bandeira: tabelas legadas ja removidas')").run();
 }
 
 function insertIfMissing(table: string, name: string, extra = "") {
@@ -472,13 +411,12 @@ function seed() {
     ["Devolvido", 5, 1]
   ].forEach((row) => statusStmt.run(...row));
 
-  const hasColumns = (db.prepare("select count(*) as c from todo_columns").get([]) as any)?.c ?? 0;
+  const hasColumns = (db.prepare("select count(*) as c from todo_columns").get() as any)?.c ?? 0;
   if (hasColumns === 0) {
     const columnStmt = db.prepare("insert into todo_columns (name, position, is_done_column) values (?, ?, ?)");
     [["Backlog", 0, 0], ["Fazendo", 1, 0], ["Pronto", 2, 1]].forEach((row) => columnStmt.run(...row));
   }
 
-  // remove duplicate columns (keep lowest id per name)
   db.exec(`delete from todo_columns where id not in (select min(id) from todo_columns group by name)`);
 
   const catStmt = db.prepare("insert or ignore into finance_categories (name, type, color) values (?, ?, ?)");

@@ -213,11 +213,11 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 | | @dnd-kit | 6 |
 | | lucide-react (ícones) | 0.468 |
 | | recharts (gráficos) | 3 |
-| **Backend** | Node.js | 18+ |
+| **Backend** | Node.js | 22+ |
 | | Fastify | 4 |
 | | TypeScript | 5 |
 | | Zod (validação) | 3 |
-| **Banco** | SQLite 3 | via CLI (`execFileSync`) |
+| **Banco** | SQLite 3 | via `node:sqlite` (in-process) |
 | **Importação** | xlsx (parse de planilhas do Mercado Livre) | 0.18 |
 | **Build** | tsc + Vite | |
 
@@ -230,7 +230,7 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 ├── server/                                 # Backend (Fastify + TypeScript)
     │   ├── index.ts                            # Entry point (80 linhas): Fastify setup, plugins, route registration
     │   ├── db.ts                               # Schema, migrações, seed, conexão SQLite
-    │   ├── calculations.ts                     # Fórmulas financeiras de pedido (re-exportado para o frontend via src/ui/finance.ts)
+    │   ├── calculations.ts                     # Fórmulas financeiras de pedido (importado diretamente pelo frontend)
     │   ├── financials.ts                       # ⭐ Regra "Devolvido zera" + match product by title + cupom
 │   ├── brazilianStates.ts                  # ⭐ UF → nome completo (fonte única)
 │   ├── importer.ts                         # Importação de pedidos do Mercado Livre (XLSX)
@@ -270,7 +270,6 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 │   └── ui/
 │       ├── App.tsx                         # 125 linhas: auth state + sidebar + routing
 │       ├── api.ts                          # Tipos compartilhados + função `api()` (FormData-safe)
-│       ├── finance.ts                      # Re-export de `calculateOrderTotals`
 │       ├── dashboard-types.ts              # Tipos do Dashboard
 │       ├── dashboard/                      # Componentes do dashboard
 │       │   ├── Dashboard.tsx
@@ -363,7 +362,7 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 
 ### Frontend
 
-- **`src/ui/finance.ts`** — re-export de `calculateOrderTotals`. Existe para que o frontend possa usar as funções sem importar diretamente do backend.
+- **`server/calculations.ts`** — fórmulas financeiras puras, importadas diretamente tanto pelo frontend quanto pelo backend (sem intermediário).
 - **`src/ui/api.ts`** — tipos compartilhados (Product, Customer, Order, etc) + função `api()` com suporte automático a FormData.
 - **`src/ui/dashboard-types.ts`** — tipos específicos do Dashboard (separados para não inflar `api.ts`).
 
@@ -432,7 +431,7 @@ Para a lista completa, veja [`docs/regras-de-negocio.md`](docs/regras-de-negocio
 | Arquivo | Testes | Cobre |
 |---------|--------|-------|
 | `api.test.ts` | 19 | Helper `api()` + tipos |
-| `finance.test.ts` | 9 | `calculateKpisFromTotals` |
+| `finance.test.ts` | 9 | `calculateOrderTotals` |
 | `DashboardKpiRow.test.tsx` | 11 | KPIs financeiros e operacionais |
 | `DashboardCompBar.test.tsx` | 5 | Barra de composição |
 | `OrderFinancialSidebar.test.tsx` | 9 | Sidebar de pedido |
